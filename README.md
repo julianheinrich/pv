@@ -52,6 +52,12 @@ Documentation for pv is available [here](http://pv.readthedocs.org).
 Changelog
 ----------------------------------------
 
+### New Since version 1.2
+
+- smoothing of strands when rendering as helix, strand, coil cartoon
+- implement proper strand "arrows"
+- improved auto-slabbing when the rendered objects are off-center
+
 ### New in Version 1.2
 
 - add transparancy support to mesh and line geoms (@kozmad)
