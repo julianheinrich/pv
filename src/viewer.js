@@ -411,6 +411,8 @@ PV.prototype._initPV = function() {
                             false);
   this._canvas.addEventListener('mousedown', bind(this, this._mouseDown),
                             false);
+  this._canvas.addEventListener('click', bind(this, this._click),
+      false);
 
   return true;
 };
@@ -569,7 +571,7 @@ PV.prototype._dispatchPickedEvent = function(event, newEventName, picked) {
   }
 };
 
-PV.prototype._mouseDown = function(event) {
+PV.prototype._click = function(event) {
   if (event.button !== 0) {
     return;
   }
@@ -581,6 +583,14 @@ PV.prototype._mouseDown = function(event) {
     var picked = this.pick(
         { x : event.clientX - rect.left, y : event.clientY - rect.top });
     this._dispatchPickedEvent(event, 'atomClicked', picked);
+  }
+  event.preventDefault();
+
+}
+
+PV.prototype._mouseDown = function(event) {
+  if (event.button !== 0) {
+    return;
   }
   event.preventDefault();
   if (event.shiftKey === true) {
