@@ -14,13 +14,13 @@ function Selector(structure, pViewer, geom, options) {
   this.existingColors = {};
   this.listeners = [];
   
-  if (options.highlighting) {
+  if (this.options.highlighting) {
     pViewer.addListener("atomClicked", function (picked, original) {
       that.atomSelected(picked, original);
     });
   }
   
-  if (options.doubleClickZoom) {
+  if (this.options.doubleClickZoom) {
     pViewer.addListener("atomDoubleClicked", function(picked, originalEvent) {
       var transformedPos = vec3.create();
       if (picked === null) {
@@ -38,7 +38,7 @@ function Selector(structure, pViewer, geom, options) {
       }
     });
   }
-  if (options.zoomOnEnter) {
+  if (this.options.zoomOnEnter) {
     pViewer.addListener('keypress', function(originalEvent) {
       console.log('keypressed');
       if (originalEvent.keyCode === 13) {
@@ -56,6 +56,9 @@ function Selector(structure, pViewer, geom, options) {
 Selector.prototype.update = function(structure, geom) {
   this.structure = structure;
   this.geom = geom;
+  this.selectedResidues = [];
+  this.existingColors = {};
+
 };
 
 Selector.prototype.addSelectionListener = function(listener) {
