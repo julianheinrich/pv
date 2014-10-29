@@ -90,6 +90,9 @@ function PV(domElement, opts) {
   // save to use whatever feature pleases us, e.g. typed arrays, 2D 
   // contexts etc.
   this._canvas = document.createElement('canvas');
+  // need to set a tab index to the parent div so that we can programatically set focus.
+  // a value of -1 means the user cannot select it, as it can only be set programatically.
+  this._domElement.setAttribute('tabindex', -1);
   this._textureCanvas = document.createElement('canvas');
   this._textureCanvas.style.display = 'none';
   this._objectIdManager = new UniqueObjectIdPool();
@@ -412,7 +415,7 @@ PV.prototype._initPV = function() {
   this._canvas.addEventListener('mousedown', bind(this, this._mouseDown),
                             false);
   this._canvas.addEventListener('click', bind(this, this._click),
-      false);
+                            false);
 
   return true;
 };
@@ -549,15 +552,26 @@ PV.prototype._mouseDoubleClick = (function() {
 
 
 PV.prototype.addListener = function(eventName, callback) {
-  var callbacks = this.listenerMap[eventName];
-  if (typeof callbacks === 'undefined') {
-    callbacks = [];
-    this.listenerMap[eventName] = callbacks;
+  
+  if (eventName === 'keypress' || eventName === 'keydown' || eventName === 'keyup') {
+    // handle keypress events directly onto the parent domElement
+    // mouse downs will make it have focus
+    this._domElement.addEventListener(eventName, bind(this, callback),
+        false);
+
   }
-  if (callback === 'center') {
-    callbacks.push(bind(this, this._centerOnClicked));
-  } else {
-    callbacks.push(callback);
+  else {
+    var callbacks = this.listenerMap[eventName];
+    if (typeof callbacks === 'undefined') {
+      callbacks = [];
+      this.listenerMap[eventName] = callbacks;
+    }
+    if (callback === 'center') {
+      callbacks.push(bind(this, this._centerOnClicked));
+    }
+    else {
+      callbacks.push(callback);
+    }
   }
 };
 
@@ -575,23 +589,28 @@ PV.prototype._click = function(event) {
   if (event.button !== 0) {
     return;
   }
-  var currentTime = (new Date()).getTime();
   // make sure it isn't a double click
-  if (typeof this.lastClickTime === 'undefined' || (currentTime - this.lastClickTime > 300)) {
-    this.lastClickTime = currentTime;
+  var currentTime = (new Date()).getTime();
+  if (currentTime - this.lastClickTime < 200) {
+    
     var rect = this._canvas.getBoundingClientRect();
     var picked = this.pick(
         { x : event.clientX - rect.left, y : event.clientY - rect.top });
     this._dispatchPickedEvent(event, 'atomClicked', picked);
-  }
-  event.preventDefault();
-
-}
+    event.preventDefault();
+  } 
+};
 
 PV.prototype._mouseDown = function(event) {
   if (event.button !== 0) {
     return;
   }
+  this._domElement.focus();
+  
+  var currentTime = (new Date()).getTime();
+  this.lastClickTime = currentTime;
+  
+//  if (typeof this.lastClickTime === 'undefined' || (currentTime - this.lastClickTime > 300)) {
   event.preventDefault();
   if (event.shiftKey === true) {
     this._canvas.addEventListener('mousemove', this._mousePanListener, false);

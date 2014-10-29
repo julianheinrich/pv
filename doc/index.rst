@@ -16,7 +16,7 @@ Contents:
    scene
    coloring
    mol
-
+   selection
 
 
 Indices and tables
