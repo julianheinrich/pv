@@ -994,6 +994,18 @@ MolView.prototype.containsResidue = function(residue) {
   return chain.containsResidue(residue);
 };
 
+MolView.prototype.addResidues = function (residues, recurse) {
+  var that = this;
+  var chainsViews = {};
+  residues.forEach(function  (residue) {
+    var chainName = residue.chain().name();
+    if (typeof chainsViews[chainName] === 'undefined') {
+      chainsViews[chainName] = that.addChain(residue.chain(), false); 
+    }
+    chainsViews[chainName].addResidue(residue, recurse);
+  });
+  return chainsViews;
+};
 
 MolView.prototype.chains = function() { return this._chains; };
 
@@ -1029,6 +1041,13 @@ ChainView.prototype.addResidue = function(residue, recurse) {
     }
   }
   return resView;
+};
+
+ChainView.prototype.addResidues = function (residues, recurse) {
+  var that = this;
+  residues.forEach(function (residue) {
+    that.addResidue(residue, recurse);
+  });
 };
 
 ChainView.prototype.containsResidue = function(residue) {
