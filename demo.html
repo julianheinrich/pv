@@ -62,6 +62,9 @@
   <div id=gl>
   </div>
   <div id=inspector>
+    <h1>Choose Structure</h1>
+    <input type=text name=pdbid id=pdbid 
+    placeholder='Enter PDB identifier to load' />&nbsp;&nbsp;<span id=status></span>
     <h1>Choose Style</h1>
     <ul>
       <li id=preset>Preset</li>
@@ -156,6 +159,22 @@
     document.getElementById('tube').onclick = tube;
     document.getElementById('entropy').onclick = entropy;
     document.getElementById('pca').onclick = pca;
+    document.getElementById('pdbid').onchange = function() {
+    	var pdb_id = this.value;
+    	document.getElementById('status').innerHTML ='loading '+pdb_id;
+    	var xhr = new XMLHttpRequest();
+        xhr.open('GET', 'http://pdb.org/pdb/files/'+pdb_id+'.pdb');
+        xhr.setRequestHeader('Content-type', 'application/x-pdb');
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState == 4) {
+            structure = io.pdb(xhr.responseText);
+            preset();
+            pv.centerOn(structure);
+          }
+          document.getElementById('status').innerHTML = '';
+        }
+        xhr.send();
+    }
     window.onresize = function(event) {
       pv.fitParent();
     }
