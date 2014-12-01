@@ -82,7 +82,7 @@
   </div>
   <div id=status>initialising...</div>
 </body>
-  <script src='js/numeric.js></script>
+  <script src='js/numeric-1.2.6.min.js'></script>
   <script src='js/pv.min.js'></script>
   <script>
     var pv = pv.Viewer(document.getElementById('gl'), 
@@ -128,7 +128,7 @@
       xhr.setRequestHeader('Content-type', 'application/x-pdb');
       xhr.onreadystatechange = function() {
         if (xhr.readyState == 4) {
-          structure = mol.pdb(xhr.responseText);
+          structure = io.pdb(xhr.responseText);
           preset();
           pv.centerOn(structure);
         }
@@ -143,6 +143,10 @@
       pv.viewMode('entropy');
       pv.requestRedraw();
     }
+    function pca() {
+      pv.viewMode('pca');
+      pv.requestRedraw();
+    }
     document.getElementById('cartoon').onclick = cartoon;
     document.getElementById('line-trace').onclick = lineTrace;
     document.getElementById('preset').onclick = preset;
@@ -151,6 +155,7 @@
     document.getElementById('sline').onclick = sline;
     document.getElementById('tube').onclick = tube;
     document.getElementById('entropy').onclick = entropy;
+    document.getElementById('pca').onclick = pca;
     window.onresize = function(event) {
       pv.fitParent();
     }
