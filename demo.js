@@ -1,4 +1,7 @@
 var structure;
+//var cameraSamples = hammersleySequence(16);
+var rotationSamples = createRandomRotations(4); 
+
 function lines() {
   viewer.clear();
   viewer.lines('structure', structure, {
@@ -141,31 +144,90 @@ function pca() {
   viewMode('pca');
   viewer.requestRedraw();
 };
-function viewMode(mode, options) {
-  options = options || {};
-  options.samples = options.samples || 32;
-  var rotation = mat4.create();
+function hammersleySequence(n) {
+  var points = [];
+  var t;
+  for (var k = 0; k < n; ++k) {
+    t = 0;
+    var kk;
+    for (var p = 0.5, kk=k; kk; p*=0.5, kk>>=1) {
+      if (kk & 1) {
+        t += p;
+      }
+    }
+    t = 2 * t - 1;
+    var theta = (k + 0.5) / n;  // theta in [0,1]
+    theta *= 2 * Math.PI;
+    var st = Math.sqrt(1 - t*t);
+    //var phi = Math.acos(t);
+    var vec = vec3.fromValues(st * Math.cos(theta), st*Math.sin(theta), t);
+    points.push(vec);
+    
+  }
+  return points;
+}
+function createRandomRotations(n) {
+  var twoPI = 2 * Math.PI;
+  var ret = [];
+  for (var i = 0; i < n; ++i) {
+    var u1 = Math.random();
+    var u2 = Math.random();
+    var u3 = Math.random();
+    var st = Math.sqrt(1-u1);
+    
+    var q = quat.fromValues(st*Math.sin(twoPI*u2),st*Math.cos(twoPI*u2), Math.sqrt(u1)*Math.sin(twoPI*u3), Math.sqrt(u1)*Math.cos(twoPI*u3));
+    var auxRotation = mat4.create();
+    mat4.fromQuat(auxRotation,q);
+    ret.push(auxRotation);
+  }
+  return(ret);
+}
+
+function viewMode(mode) {
+  
+  var rotation = mat4.clone(viewer._cam.rotation());
+  var center = vec3.clone(viewer._cam.center());
+  var zoom = viewer._cam.zoom();
+  
+  var cameraPosition = function(rotation, center, zoom) {
+    var currentCameraPosition = vec3.fromValues(rotation[2], rotation[6], rotation[10]);
+    vec3.normalize(currentCameraPosition, currentCameraPosition);
+    vec3.scaleAndAdd(currentCameraPosition, center, currentCameraPosition, zoom);
+    return(currentCameraPosition);
+  }
+  
+  var spherical = function(point) {
+    var r = vec3.length(point);
+    var theta = Math.atan(point[1]/point[2]);
+    var phi = Math.acos(point[2]/r);
+    return([r, theta, phi]);
+  }
   
   if (mode === 'entropy') {
     
-    rotation = computePCA();
-    var maxI = viewer.computeEntropy(rotation);
+    var samples = rotationSamples.slice(0);
     
-    for (var i = 0; i < options.samples; ++i) {
-      var phi = Math.random() * 2 * Math.PI;
-      var theta = Math.random() * 2 * Math.PI;
-      var u = Math.cos(phi);
-      var x = Math.sqrt(1 - u*u) * Math.cos(theta);
-      var y = Math.sqrt(1 - u*u) * Math.sin(theta);
-      var q = quat.fromValues(0, x, y, u);
-      var auxRotation = mat4.create();
-      mat4.fromQuat(auxRotation, q);
-
+    var rotation = computePCA();
+    samples.push(rotation);
+    
+    // rotate by 180 degrees around the vertical axes
+    var auxRotation = mat4.create();
+    mat4.rotate(auxRotation, rotation, Math.PI, [rotation[1], rotation[5], rotation[9]]);
+    samples.push(auxRotation);
+    
+    // now sample all rotations
+    var maxI = 0;
+    for (var k = 0; k < samples.length; ++k) {
+       
+      auxRotation = samples[k];
+      
       var auxI = viewer.computeEntropy(auxRotation);
       if (auxI > maxI) {
         rotation = auxRotation;
         maxI = auxI;
+        console.log(k);
       }
+      
     }
   
   } else if (mode === 'pca') {
@@ -178,16 +240,10 @@ function viewMode(mode, options) {
     
   };
 function computePCA() {
-var X = [];
+  var X = [];
 
   viewer.forEach(function(obj) {
-    obj.structure().eachAtom(function(atom) {
-      if (atom.name() !== 'CA') {
-        return;
-      } else if (!atom.residue().isAminoacid()) {
-        return;
-      }
-      var pos = atom.pos();
+    obj.eachCentralAtom(function(atom, pos) {
       X.push([pos[0], pos[1], pos[2]]);
     });
   });
@@ -207,6 +263,7 @@ var X = [];
   var right = V[0];
   var up = V[1];
   var view = V[2];
+  
   var m = mat4.fromValues(right[0], right[1], right[2], 0,
                           up[0], up[1], up[2], 0,
                           view[0], view[1], view[2], 0,

@@ -19,16 +19,17 @@
 // DEALINGS IN THE SOFTWARE.
 
 var pv = (function(){
-  "use strict";
 
-  // FIXME: Browser vendors tend to block quite a few graphic cards. Instead
-  //   of showing this very generic message, implement a per-browser
-  //   diagnostic. For example, when we detect that we are running a recent
-  //   Chrome and Webgl is not available, we should say that the user is
-  //   supposed to check chrome://gpu for details on why WebGL is not
-  //   available. Similar troubleshooting pages are available for other
-  //   browsers.
-  var WEBGL_NOT_SUPPORTED = '\
+"use strict";
+
+// FIXME: Browser vendors tend to block quite a few graphic cards. Instead
+//   of showing this very generic message, implement a per-browser
+//   diagnostic. For example, when we detect that we are running a recent
+//   Chrome and Webgl is not available, we should say that the user is
+//   supposed to check chrome://gpu for details on why WebGL is not
+//   available. Similar troubleshooting pages are available for other
+//   browsers.
+var WEBGL_NOT_SUPPORTED = '\
 <div style="vertical-align:middle; text-align:center;">\
 <h1>Oink</h1><p>Your browser does not support WebGL. \
 You might want to try Chrome, Firefox, IE 11, or newer versions of Safari\
@@ -38,11 +39,6 @@ graphic card might be blocked. Check the browser documentation for details\
 </p>\
 </div>';
 
-  function bind(obj, fn) {
-    return function() {
-      return fn.apply(obj, arguments);
-  };
-}
 
 
 var requestAnimFrame = (function(){
@@ -50,7 +46,7 @@ var requestAnimFrame = (function(){
          window.mozRequestAnimationFrame ||
          function(callback) {
            window.setTimeout(callback, 1000 / 60);
-          };
+         };
 })();
 
 function slabModeToStrategy(mode, options) {
@@ -76,6 +72,7 @@ function PV(domElement, opts) {
     background : opts.background ? forceRGB(opts.background) : vec3.fromValues(1,1,1),
     slabMode : slabModeToStrategy(opts.slabMode),
     atomClick: opts.atomClick || null,
+    fog : true,
     atomDoubleClick : 'center', // option is handled below
   };
   this._objects = [];
@@ -110,6 +107,9 @@ function PV(domElement, opts) {
   }
   if ('atomDoubleClicked' in opts) {
     this._options.atomDoubleClick = opts.atomDoubleClick;
+  }
+  if ('fog' in opts) {
+    this._options.fog = opts.fog;
   }
   this._ok = false;
   this._camAnim = { 
@@ -200,6 +200,7 @@ PV.prototype.options = function(optName, value) {
   if (value !== undefined) {
     if (optName === 'fog') {
       this._cam.fog(value);
+      this._options.fog = value;
       this.requestRedraw();
     } else {
       this._options[optName] = value;
@@ -386,6 +387,7 @@ PV.prototype._initPV = function() {
   this._float32Allocator = new PoolAllocator(Float32Array);
   this._uint16Allocator = new PoolAllocator(Uint16Array);
   this._cam = new Cam(this._gl);
+  this._cam.fog(this._options.fog);
   this._shaderCatalog = {
     hemilight : this._initShader(shaders.HEMILIGHT_VS, shaders.HEMILIGHT_FS),
     outline : this._initShader(shaders.OUTLINE_VS, shaders.OUTLINE_FS),
@@ -416,6 +418,7 @@ PV.prototype._initPV = function() {
                             false);
   this._canvas.addEventListener('click', bind(this, this._click),
                             false);
+  this._touchHandler = new TouchHandler(this._canvas, this, this._cam);
 
   return true;
 };
@@ -920,6 +923,7 @@ PV.prototype.computeEntropy = function(rotation) {
   this._cam.setRotation(rotation);
   this._pickBuffer.bind();
   this._drawPickingScene();
+  // TODO: try using a smaller buffer to decrease computation time
   var size = this._pickBuffer.width() * this._pickBuffer.height();
   var pixels = new Uint8Array(size * 4);
   this._gl.readPixels(0, 0, this._pickBuffer.width(), this._pickBuffer.height(),
@@ -931,7 +935,6 @@ PV.prototype.computeEntropy = function(rotation) {
 
   var e = 0;
   var npix = [];
-  var total = 0;
   for (var p = 0; p < size; ++p) {
     var i = p * 4;
     if (pixels[i + 3] === 0) {
@@ -946,12 +949,11 @@ PV.prototype.computeEntropy = function(rotation) {
       } else {
         npix[objId]++;
       }
-      total++;
     }
   }
 
   npix.forEach(function(N) {
-    var tmp = N/total;
+    var tmp = N/size;
     e += tmp * Math.log(tmp);
   });
 

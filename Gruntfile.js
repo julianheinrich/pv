@@ -20,8 +20,9 @@ SOURCE_FILES = [
   'src/framebuffer.js',
   'src/slab.js',
   'src/animation.js',
-  'src/viewer.js',
-  'src/selector.js'
+  'src/selector.js',
+  'src/touch.js',
+  'src/viewer.js'
 ];
 
 ALL_FILES = ['src/gl-matrix.js'];
