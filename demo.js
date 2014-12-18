@@ -1,5 +1,5 @@
 var structure;
-var rotationSamples = createRandomRotations(16); 
+var rotationSamples = createRandomRotations(256); 
 
 function lines() {
   viewer.clear();
@@ -22,6 +22,11 @@ function lineTrace() {
 function spheres() {
   viewer.clear();
   viewer.spheres('structure', structure, { showRelated : '1' });
+}
+
+function surface() {
+  viewer.clear();
+  viewer.surface('structure', structure, { showRelated : '1' });
 }
 
 function sline() {
@@ -160,8 +165,10 @@ function createRandomRotations(n) {
   return(ret);
 }
 
-function viewMode(mode) {
-  
+function viewMode(mode, options) {
+  options = options || {
+    type: 'residue'
+  }
   var rotation = mat4.clone(viewer._cam.rotation());
   var center = vec3.clone(viewer._cam.center());
   var zoom = viewer._cam.zoom();
@@ -198,7 +205,7 @@ function viewMode(mode) {
        
       auxRotation = samples[k];
       
-      var auxI = viewer.computeEntropy(auxRotation);
+      var auxI = viewer.computeEntropy(auxRotation, options);
       if (auxI > maxI) {
         rotation = auxRotation;
         maxI = auxI;
