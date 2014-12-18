@@ -1152,7 +1152,9 @@ ResidueView.prototype.containsResidue = function(residue) {
   return this._residue.full() === residue.full();
 };
 
-
+ResidueView.prototype.isAminoacid = function() { return this._residue.isAminoacid(); };
+ResidueView.prototype.isNucleotide = function() { return this._residue.isNucleotide(); };
+ResidueView.prototype.isWater = function() { return this._residue.isWater(); };
 
 function AtomView(resView, atom) {
   AtomBase.prototype.constructor.call(this);
