@@ -171,6 +171,7 @@ PV.prototype._ensureSize = function() {
     this._initManualAntialiasing(this._options.samples);
   }
   this._pickBuffer.resize(this._options.width, this._options.height);
+  this._entropyBuffer.resize(this._options.width / 4, this._options.height / 4);
 };
 
 PV.prototype.resize = function(width, height) {
@@ -280,6 +281,13 @@ PV.prototype._initPickBuffer = function() {
   this._pickBuffer = new FrameBuffer(this._gl, fbOptions);
 };
 
+PV.prototype._initEntropyBuffer = function() {
+  var fbOptions = {
+    width : this._options.width / 4, height : this._options.height / 4
+  };
+  this._entropyBuffer = new FrameBuffer(this._gl, fbOptions);
+};
+
 PV.prototype._initGL = function() {
   var samples = 1;
   if (!this._initContext()) {
@@ -304,6 +312,7 @@ PV.prototype._initGL = function() {
   this._gl.enable(this._gl.CULL_FACE);
   this._gl.enable(this._gl.DEPTH_TEST);
   this._initPickBuffer();
+  this._initEntropyBuffer();
   return true;
 };
 
@@ -428,6 +437,7 @@ PV.prototype.requestRedraw = function() {
     return;
   }
   this._redrawRequested = true;
+  console.log("entropy: " + this.computeEntropy(this._cam.rotation(), {type:'residue'}));
   requestAnimFrame(this._boundDraw);
 };
 
@@ -917,23 +927,38 @@ PV.prototype.slabMode = function(mode, options) {
   this.requestRedraw();
 };
 
-PV.prototype.computeEntropy = function(rotation) {
+PV.prototype.computeEntropy = function(rotation, options) {
+  options = options || {
+    type: 'atom'
+  };
   var currentRotation = this._cam.rotation();
   rotation = rotation || currentRotation;
   this._cam.setRotation(rotation);
-  this._pickBuffer.bind();
+  this._entropyBuffer.bind();
   this._drawPickingScene();
-  // TODO: try using a smaller buffer to decrease computation time
-  var size = this._pickBuffer.width() * this._pickBuffer.height();
+  var size = this._entropyBuffer.width() * this._entropyBuffer.height();
   var pixels = new Uint8Array(size * 4);
-  this._gl.readPixels(0, 0, this._pickBuffer.width(), this._pickBuffer.height(),
+  this._gl.readPixels(0, 0, this._entropyBuffer.width(), this._entropyBuffer.height(),
       this._gl.RGBA, this._gl.UNSIGNED_BYTE, pixels);
-  this._pickBuffer.release();
+  this._entropyBuffer.release();
   if (pixels.data) {
     pixels = pixels.data;
   }
-
   
+  //Create a 2D canvas to store the result 
+//  var canvas = document.createElement('canvas');
+//  canvas.width = this._entropyBuffer.width();
+//  canvas.height = this._entropyBuffer.height();
+//  var context = canvas.getContext('2d');
+//
+//  // Copy the pixels to a 2D canvas
+//  var imageData = context.createImageData(this._entropyBuffer.width(), this._entropyBuffer.height());
+//  imageData.data.set(pixels);
+//  context.putImageData(imageData, 0, 0);
+//  
+//  var img = document.getElementById('buffer');
+//  img.src = canvas.toDataURL();
+
   var npix = {};
   for (var p = 0; p < size; ++p) {
     var i = p * 4;
@@ -941,22 +966,25 @@ PV.prototype.computeEntropy = function(rotation) {
       continue;
     }
     var objId = pixels[i] | pixels[i + 1] << 8;
-
+    var symIndex = pixels[i + 2];
+    
     var obj = this._objectIdManager.objectForId(objId);
     if (obj !== undefined) {
-      if (npix[objId] === undefined) {
-        npix[objId] = 1;
-      } else {
-        npix[objId]++;
-      }
+      var index = options.type === 'atom' ? obj.atom.index() : obj.atom.residue().index();
+        if (npix[index] === undefined) {
+          npix[index] = 1;
+        } else {
+          npix[index]++;
+        }
     }
   }
-  
+  console.log("number of visible " + options.type + ": " + Object.keys(npix).length);
+//  console.log(npix);
   var e = 0;
   for (var property in npix) {
     if (npix.hasOwnProperty(property)) {
-      var tmp = npix[property]/size;
-      e += tmp * Math.log(tmp);
+      var tmp = npix[property]/size;    // > 0 by construction
+      e += tmp * Math.log(tmp) / Math.log(2);
     } 
   }
 
