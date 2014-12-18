@@ -171,7 +171,7 @@ PV.prototype._ensureSize = function() {
     this._initManualAntialiasing(this._options.samples);
   }
   this._pickBuffer.resize(this._options.width, this._options.height);
-  this._entropyBuffer.resize(this._options.width / 4, this._options.height / 4);
+  this._entropyBuffer.resize(Math.floor(this._options.width / 4), Math.floor(this._options.height / 4));
 };
 
 PV.prototype.resize = function(width, height) {
@@ -283,7 +283,7 @@ PV.prototype._initPickBuffer = function() {
 
 PV.prototype._initEntropyBuffer = function() {
   var fbOptions = {
-    width : this._options.width / 4, height : this._options.height / 4
+    width : Math.floor(this._options.width / 4), height : Math.floor(this._options.height / 4)
   };
   this._entropyBuffer = new FrameBuffer(this._gl, fbOptions);
 };
@@ -437,7 +437,7 @@ PV.prototype.requestRedraw = function() {
     return;
   }
   this._redrawRequested = true;
-  console.log("entropy: " + this.computeEntropy(this._cam.rotation(), {type:'residue'}));
+  console.log("entropy: " + this.computeEntropy(this._cam.rotation(), {type:'atom'}));
   requestAnimFrame(this._boundDraw);
 };
 
