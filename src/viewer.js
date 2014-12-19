@@ -437,7 +437,7 @@ PV.prototype.requestRedraw = function() {
     return;
   }
   this._redrawRequested = true;
-  console.log("entropy: " + this.computeEntropy(this._cam.rotation(), {type:'atom'}));
+//  console.log("entropy: " + this.computeEntropy(this._cam.rotation(), {type:'atom'}));
   requestAnimFrame(this._boundDraw);
 };
 
@@ -928,9 +928,10 @@ PV.prototype.slabMode = function(mode, options) {
 };
 
 PV.prototype.computeEntropy = function(rotation, options) {
-  options = options || {
-    type: 'atom'
-  };
+  options = options || {};
+  options.type = options.type || 'atom';
+  options.structure = options.structure || false;
+  
   var currentRotation = this._cam.rotation();
   rotation = rotation || currentRotation;
   this._cam.setRotation(rotation);
@@ -945,19 +946,27 @@ PV.prototype.computeEntropy = function(rotation, options) {
     pixels = pixels.data;
   }
   
-  //Create a 2D canvas to store the result 
-//  var canvas = document.createElement('canvas');
-//  canvas.width = this._entropyBuffer.width();
-//  canvas.height = this._entropyBuffer.height();
-//  var context = canvas.getContext('2d');
-//
-//  // Copy the pixels to a 2D canvas
-//  var imageData = context.createImageData(this._entropyBuffer.width(), this._entropyBuffer.height());
-//  imageData.data.set(pixels);
-//  context.putImageData(imageData, 0, 0);
-//  
-//  var img = document.getElementById('buffer');
-//  img.src = canvas.toDataURL();
+  var useIndex = (function() {
+    if (options.structure) {
+      var indexMap = {};
+      if (options.type === 'atom') {
+        options.structure.eachAtom(function(atom) {
+          indexMap[atom.index()] = true;
+        });
+      } else if (options.type === 'residue') {
+        options.structure.eachResidue(function(residue) {
+          indexMap[residue.index()] = true;
+        });
+      }
+      return function(index) {
+        return (index in indexMap);
+      };
+    } else {
+      return function() {
+        return true;
+      };
+    }
+  })();
 
   var npix = {};
   for (var p = 0; p < size; ++p) {
@@ -971,11 +980,13 @@ PV.prototype.computeEntropy = function(rotation, options) {
     var obj = this._objectIdManager.objectForId(objId);
     if (obj !== undefined) {
       var index = options.type === 'atom' ? obj.atom.index() : obj.atom.residue().index();
+      if (useIndex(index)) {
         if (npix[index] === undefined) {
           npix[index] = 1;
         } else {
           npix[index]++;
         }
+      }
     }
   }
   console.log("number of visible " + options.type + ": " + Object.keys(npix).length);
