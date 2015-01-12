@@ -989,8 +989,8 @@ PV.prototype.computeEntropy = function(rotation, options) {
       }
     }
   }
-  console.log("number of visible " + options.type + ": " + Object.keys(npix).length);
-//  console.log(npix);
+  var visible = Object.keys(npix).length;
+  console.log("number of visible " + options.type + ": " + visible);
   var e = 0;
   for (var property in npix) {
     if (npix.hasOwnProperty(property)) {
@@ -1000,7 +1000,7 @@ PV.prototype.computeEntropy = function(rotation, options) {
   }
 
   this._cam.setRotation(currentRotation);
-  return -e;
+  return {entropy: -e, visible: visible};
 };
 
 PV.prototype.label = function(name, text, pos) {
