@@ -927,81 +927,71 @@ PV.prototype.slabMode = function(mode, options) {
   this.requestRedraw();
 };
 
-PV.prototype.computeEntropy = function(rotation, options) {
-  options = options || {};
-  options.type = options.type || 'atom';
-  options.structure = options.structure || false;
-  
-  var currentRotation = this._cam.rotation();
-  rotation = rotation || currentRotation;
-  this._cam.setRotation(rotation);
-  this._entropyBuffer.bind();
-  this._drawPickingScene();
-  var size = this._entropyBuffer.width() * this._entropyBuffer.height();
-  var pixels = new Uint8Array(size * 4);
-  this._gl.readPixels(0, 0, this._entropyBuffer.width(), this._entropyBuffer.height(),
-      this._gl.RGBA, this._gl.UNSIGNED_BYTE, pixels);
-  this._entropyBuffer.release();
-  if (pixels.data) {
-    pixels = pixels.data;
-  }
-  
-  var useIndex = (function() {
-    if (options.structure) {
-      var indexMap = {};
-      if (options.type === 'atom') {
-        options.structure.eachAtom(function(atom) {
-          indexMap[atom.index()] = true;
-        });
-      } else if (options.type === 'residue') {
-        options.structure.eachResidue(function(residue) {
-          indexMap[residue.index()] = true;
-        });
-      }
-      return function(index) {
-        return (index in indexMap);
-      };
-    } else {
-      return function() {
-        return true;
-      };
-    }
-  })();
-
+PV.prototype.computeEntropy = function(rotation, weight) {
+  weight = weight || function(obj) { return 1; };
   var npix = {};
-  for (var p = 0; p < size; ++p) {
-    var i = p * 4;
-    if (pixels[i + 3] === 0) {
-      continue;
+  this.eachVisibleObject(rotation, function(obj) {
+//    var index = obj.atom.index();
+    if (npix[obj] === undefined) {
+            npix[obj] = 1;
+    } else {
+            npix[obj]++;
     }
-    var objId = pixels[i] | pixels[i + 1] << 8;
-    var symIndex = pixels[i + 2];
-    
-    var obj = this._objectIdManager.objectForId(objId);
-    if (obj !== undefined) {
-      var index = options.type === 'atom' ? obj.atom.index() : obj.atom.residue().index();
-      if (useIndex(index)) {
-        if (npix[index] === undefined) {
-          npix[index] = 1;
-        } else {
-          npix[index]++;
-        }
-      }
-    }
-  }
+  });
+  
   var visible = Object.keys(npix).length;
   console.log("number of visible " + options.type + ": " + visible);
   var e = 0;
-  for (var property in npix) {
-    if (npix.hasOwnProperty(property)) {
-      var tmp = npix[property]/size;    // > 0 by construction
-      e += tmp * Math.log(tmp) / Math.log(2);
+  for (var obj in npix) {
+    if (npix.hasOwnProperty(obj)) {
+      var tmp = npix[obj]/size;    // > 0 by construction
+      var w = weight(obj);
+      e += w * tmp * Math.log(tmp) / Math.log(2);
     } 
   }
 
   this._cam.setRotation(currentRotation);
   return {entropy: -e, visible: visible};
 };
+
+PV.prototype.eachVisibleObject = (function() {
+  var w = this._entropyBuffer.width();
+  var h = this._entropyBuffer.height();
+  var size = w * h;
+  var pixels = new Uint8Array(size * 4);
+  
+  return function(rotation, callback) {
+    var currentRotation = this._cam.rotation();
+    rotation = rotation || currentRotation;
+    this._cam.setRotation(rotation);
+    this._entropyBuffer.bind();
+    this._drawPickingScene();
+    
+    this._gl.readPixels(0, 0, this._entropyBuffer.width(), this._entropyBuffer.height(),
+        this._gl.RGBA, this._gl.UNSIGNED_BYTE, pixels);
+    this._entropyBuffer.release();
+    if (pixels.data) {
+      pixels = pixels.data;
+    }
+    
+    for (var p = 0; p < size; ++p) {
+      var i = p * 4;
+      if (pixels[i + 3] === 0) {
+        continue;
+      }
+      var objId = pixels[i] | pixels[i + 1] << 8;
+      var symIndex = pixels[i + 2];
+      
+      var obj = this._objectIdManager.objectForId(objId);
+      if (obj !== undefined) {
+        var x = Math.floor(p % w);
+        var y = Math.floor(p / w);
+        callback(obj, x, y);
+      }
+    }
+  };
+  
+})();
 
 PV.prototype.label = function(name, text, pos) {
   var label = new TextLabel(this._gl, this._textureCanvas, 
