@@ -171,7 +171,7 @@ PV.prototype._ensureSize = function() {
     this._initManualAntialiasing(this._options.samples);
   }
   this._pickBuffer.resize(this._options.width, this._options.height);
-  this._entropyBuffer.resize(Math.floor(this._options.width / 4), Math.floor(this._options.height / 4));
+  this._entropyBuffer.resize(this.ENTROPY_BUFFER_WIDTH, this.ENTROPY_BUFFER_HEIGHT);
 };
 
 PV.prototype.resize = function(width, height) {
@@ -281,9 +281,12 @@ PV.prototype._initPickBuffer = function() {
   this._pickBuffer = new FrameBuffer(this._gl, fbOptions);
 };
 
+PV.prototype.ENTROPY_BUFFER_WIDTH = 512;
+PV.prototype.ENTROPY_BUFFER_HEIGHT = 512;
+
 PV.prototype._initEntropyBuffer = function() {
   var fbOptions = {
-    width : Math.floor(this._options.width / 4), height : Math.floor(this._options.height / 4)
+    width : this.ENTROPY_BUFFER_WIDTH, height : this.ENTROPY_BUFFER_HEIGHT
   };
   this._entropyBuffer = new FrameBuffer(this._gl, fbOptions);
 };
@@ -437,7 +440,6 @@ PV.prototype.requestRedraw = function() {
     return;
   }
   this._redrawRequested = true;
-//  console.log("entropy: " + this.computeEntropy(this._cam.rotation(), {type:'atom'}));
   requestAnimFrame(this._boundDraw);
 };
 
@@ -930,68 +932,71 @@ PV.prototype.slabMode = function(mode, options) {
 PV.prototype.computeEntropy = function(rotation, weight) {
   weight = weight || function(obj) { return 1; };
   var npix = {};
+  var w = this._entropyBuffer.width();
+  var h = this._entropyBuffer.height();
+  var size = w * h;
+  
   this.eachVisibleObject(rotation, function(obj) {
-//    var index = obj.atom.index();
-    if (npix[obj] === undefined) {
-            npix[obj] = 1;
+    var index = obj.atom.index();
+    if (npix[index] === undefined) {
+            npix[index] = 1;
     } else {
-            npix[obj]++;
+            npix[index]++;
     }
   });
   
   var visible = Object.keys(npix).length;
-  console.log("number of visible " + options.type + ": " + visible);
+  console.log("number of visible atoms: " + visible);
   var e = 0;
   for (var obj in npix) {
     if (npix.hasOwnProperty(obj)) {
       var tmp = npix[obj]/size;    // > 0 by construction
-      var w = weight(obj);
-      e += w * tmp * Math.log(tmp) / Math.log(2);
+      e += weight(obj) * tmp * Math.log(tmp) / Math.log(2);
     } 
   }
 
-  this._cam.setRotation(currentRotation);
+//  this._cam.setRotation(currentRotation);
   return {entropy: -e, visible: visible};
 };
 
-PV.prototype.eachVisibleObject = (function() {
+PV.prototype.eachVisibleObject = function(rotation, callback) {
   var w = this._entropyBuffer.width();
   var h = this._entropyBuffer.height();
   var size = w * h;
   var pixels = new Uint8Array(size * 4);
   
-  return function(rotation, callback) {
-    var currentRotation = this._cam.rotation();
-    rotation = rotation || currentRotation;
-    this._cam.setRotation(rotation);
-    this._entropyBuffer.bind();
-    this._drawPickingScene();
-    
-    this._gl.readPixels(0, 0, this._entropyBuffer.width(), this._entropyBuffer.height(),
-        this._gl.RGBA, this._gl.UNSIGNED_BYTE, pixels);
-    this._entropyBuffer.release();
-    if (pixels.data) {
-      pixels = pixels.data;
-    }
-    
-    for (var p = 0; p < size; ++p) {
-      var i = p * 4;
-      if (pixels[i + 3] === 0) {
-        continue;
-      }
-      var objId = pixels[i] | pixels[i + 1] << 8;
-      var symIndex = pixels[i + 2];
-      
-      var obj = this._objectIdManager.objectForId(objId);
-      if (obj !== undefined) {
-        var x = Math.floor(p % w);
-        var y = Math.floor(p / w);
-        callback(obj, x, y);
-      }
-    }
-  };
+  var currentRotation = mat4.clone(this._cam.rotation());
+  rotation = rotation || currentRotation;
+  this._cam.setRotation(rotation);
+  this._entropyBuffer.bind();
+  this._drawPickingScene();
   
-})();
+  this._gl.readPixels(0, 0, this._entropyBuffer.width(), this._entropyBuffer.height(),
+      this._gl.RGBA, this._gl.UNSIGNED_BYTE, pixels);
+  this._entropyBuffer.release();
+  if (pixels.data) {
+    pixels = pixels.data;
+  }
+  
+  for (var p = 0; p < size; ++p) {
+    var i = p * 4;
+    if (pixels[i + 3] === 0) {
+      continue;
+    }
+    var objId = pixels[i] | pixels[i + 1] << 8;
+    var symIndex = pixels[i + 2];
+    
+    var obj = this._objectIdManager.objectForId(objId);
+    if (obj !== undefined) {
+      var x = Math.floor(p % w);
+      var y = Math.floor(p / w);
+      callback(obj, x, y);
+    }
+  }
+  
+  this._cam.setRotation(currentRotation);
+  
+};
 
 PV.prototype.label = function(name, text, pos) {
   var label = new TextLabel(this._gl, this._textureCanvas, 
