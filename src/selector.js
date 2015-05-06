@@ -1,12 +1,20 @@
-(function(exports) {
+
+
+define(['gl-matrix', 'mol/all', 'color'], 
+    function(glMatrix, mol, color) {
 
 "use strict";
+
+var vec3 = glMatrix.vec3;
+
 /**
- * options is optional. It currently handles attributes: highlighting, doubleClickZoom, zoomOnEnter
+ * options is optional. 
+ * It currently handles attributes: highlighting, doubleClickZoom, zoomOnEnter
  */
 function Selector(structure, pViewer, geom, options) {
   var that = this;
-  this.options = options || {highlighting: 1, doubleClickZoom: 1, zoomOnEnter: 1};
+  this.options = options || 
+    {highlighting: 1, doubleClickZoom: 1, zoomOnEnter: 1};
   this.structure = structure;
   this.geom = geom;
   this.pViewer = pViewer;
@@ -21,7 +29,7 @@ function Selector(structure, pViewer, geom, options) {
   }
   
   if (this.options.doubleClickZoom) {
-    pViewer.addListener("atomDoubleClicked", function(picked, originalEvent) {
+    pViewer.addListener("atomDoubleClicked", function(picked) {
       var transformedPos = vec3.create();
       if (picked === null) {
         pViewer.fitTo(that.structure);
@@ -81,8 +89,9 @@ Selector.prototype.addResidueSelection = function(selectedResidues) {
     
     if (typeof that.existingColors[residue.qualifiedName()] === 'undefined') {
       that.selectedResidues.push(residue);
-      that.existingColors[residue.qualifiedName()] = rgb.create();
-      that.geom.getColorForAtom(residue.atom(0), that.existingColors[residue.qualifiedName()]);
+      that.existingColors[residue.qualifiedName()] = color.rgb.create();
+      that.geom.getColorForAtom(residue.atom(0), 
+          that.existingColors[residue.qualifiedName()]);
       changed = true;
     }
   });
@@ -102,7 +111,7 @@ var assignColour = function (out, index, colorArray) {
 
 Selector.prototype.existingColorScheme = function () {
   var that = this;
-  return new ColorOp(function(atom, out, index) {
+  return new color.ColorOp(function(atom, out, index) {
     var residue = atom.residue();
     
     var color = that.existingColors[residue.qualifiedName()];
@@ -112,8 +121,6 @@ Selector.prototype.existingColorScheme = function () {
   }, null, null);
 
 };
-
-
 
 Selector.prototype.clearSelection = function(selectedResidues) {
   var that = this;
@@ -152,7 +159,9 @@ Selector.prototype.atomSelected = function(picked, originalEvent) {
   if (picked) {
     var newAtom = picked.object().atom;
     var residue = newAtom.residue();
-    if (originalEvent.shiftKey && this.lastResiduePicked && this.lastResiduePicked.chain() === residue.chain()) {
+    if (originalEvent.shiftKey && 
+        this.lastResiduePicked && 
+        this.lastResiduePicked.chain() === residue.chain()) {
       var start = Math.min(this.lastResiduePicked.num(), residue.num());
       var end = Math.max(this.lastResiduePicked.num(), residue.num());
       var residues = residue.chain().residuesInRnumRange(start, end);
@@ -166,6 +175,8 @@ Selector.prototype.atomSelected = function(picked, originalEvent) {
   }
 };
 
-exports.Selector = Selector;
+return {
+  Selector: Selector
+};
 
-})(this);
+});

@@ -19,8 +19,9 @@
 // DEALINGS IN THE SOFTWARE.
 
 define(
-  ['./gl-matrix', './viewer', './io', './mol/all', './color', './viewpoint'], 
-  function(glMatrix, viewer, io, mol, color, viewpoint) {
+  ['./gl-matrix', './viewer', './io', 
+   './mol/all', './color', './viewpoint', './selector'], 
+  function(glMatrix, viewer, io, mol, color, viewpoint, Selector) {
   'use strict';
   // export 
   return {
@@ -39,6 +40,7 @@ define(
     mat3 : glMatrix.mat3,
     mat4 : glMatrix.mat4,
     quat : glMatrix.quat,
-    viewpoint : viewpoint
+    viewpoint : viewpoint,
+    Selector: Selector.Selector
   };
 });

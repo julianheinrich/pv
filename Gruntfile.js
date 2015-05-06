@@ -38,7 +38,8 @@ SOURCE_FILES = [
   'src/unique-object-id-pool.js',
   'src/utils.js',
   'src/viewer.js',
-  'src/viewpoint.js'
+  'src/viewpoint.js',
+  'src/selector.js'
 ];
 
 ALL_FILES = ['src/gl-matrix.js'];
