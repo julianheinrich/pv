@@ -26,7 +26,10 @@ define(
   function(
     glMatrix, utils) {
 
+
 "use strict";
+
+var vec3 = glMatrix.vec3;
 
 function AtomBase() {
 }
@@ -41,7 +44,23 @@ AtomBase.prototype = {
     for (var i = 0, e = bonds.length; i < e; ++i) {
       callback(bonds[i]);
     }
-  }
+  },
+  isConnectedTo: function(otherAtom) {
+    if (otherAtom === null) {
+      return false;
+    }
+    var other = otherAtom.full();
+    var me = this.full();
+    var bonds = this.bonds();
+    for (var i = 0, e = bonds.length; i < e; ++i) {
+      var bond = bonds[i];
+      if ((bond.atom_one() === me && bond.atom_two() === other) ||
+          (bond.atom_one() === other && bond.atom_two() === me)) {
+        return true;
+      }
+    }
+    return false;
+  },
 };
 
 function Atom(residue, name, pos, element, index, isHetatm,
@@ -71,6 +90,11 @@ utils.derive(Atom, AtomBase, {
     return this.residue().qualifiedName()+'.'+this.name();
   },
   pos : function() { return this._pos; },
+
+  setPos : function(pos) { 
+    vec3.copy(this._pos, pos); 
+  },
+
   element : function() { return this._element; },
   index : function() { return this._index; },
 

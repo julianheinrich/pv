@@ -30,6 +30,7 @@ SOURCE_FILES = [
   'src/mol/select.js',
   'src/mol/trace.js',
   'src/mol/symmetry.js',
+  'src/mol/supoerpose.js',
   'src/pv.js',
   'src/slab.js',
   'src/mouse.js',
@@ -62,6 +63,11 @@ module.exports = function(grunt) {
   (function (root, factory) {\n\
       if (typeof define === 'function' && define.amd) {\n\
           define([], factory);\n\
+      } else if (typeof exports === 'object') { \n\
+        exports = factory(); \n\
+        if (typeof module === 'object') { \n\
+          module.exports = exports; \n\
+        } \n\
       } else {\n\
           var pv = factory();\n\
           root.pv = pv;\n\

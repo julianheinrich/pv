@@ -30,6 +30,7 @@ Initialization and Configuration
   * *atomClicked* set the event handler for an atom double clicked event (see *atomDoubleClicked*). The default is null (no listener).
   * *animateTime* controls the default animation duration in milliseconds. By default, the animation is set to 0 (no animation). By setting it to higher values, rotation, zoom and shift are animated. Note that enabling this can have negative impact on performance, especially with large molecules and on low-end devices.
   * *fog* whether depth-cue ('fog') should be enabled. By default, fog is enabled. Pass false to disable fog.
+  * *fov* the field of view in degrees. Default is 45 degrees.
 
 
 The following code defines a new viewer. This can be done during page load time, before the DOMContentLoaded event has been emitted. Render objects can only be added once the DOMContentLoaded event has fired. Typically it's best to put any object loading and display code into a DOMContentLoaded event handler.
@@ -60,6 +61,8 @@ The following code defines a new viewer. This can be done during page load time,
 
   * *high* render the scene with maximum detail.
 
+  Changes to the quality only affect newly created objects/geometries. Already existing objects/geometries are not affected.
+
 
 .. _pv.viewer.rendering:
 
@@ -85,6 +88,16 @@ These methods will automatically add the object to the viewer, there is not need
   * *lineWidth*: The line width for bonds and atoms. Defaults to 4.0
 
   :returns: The geometry of the object. 
+
+.. function:: pv.Viewer.points(name, structure[, options])
+
+  Renders the atoms of a structure (:class:`~pv.mol.Mol`, or :class:`~pv.mol.MolView`) as a point cloud. Valid *options* are:
+
+  * *color*: the color operation to be used. Defaults to :func:`pv.color.byElement`.
+  * *pointSize* relative point size of the points to be rendered. Defaults to 1.0
+
+  :returns: The geometry of the object. 
+
 
 .. function:: pv.Viewer.spheres(name, structure[, options])
 

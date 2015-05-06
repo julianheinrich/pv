@@ -20,6 +20,7 @@ Contents:
    coloring
    mol
    selection
+   superpose
 
 
 Indices and tables

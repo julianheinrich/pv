@@ -52,12 +52,14 @@ var UNIT_TESTS = [
   'tests/mol/iterators',
   'tests/mol/select',
   'tests/mol/assign-helix-sheet',
+  'tests/mol/superpose',
   'tests/viewer/functional',
   'tests/io/pdb',
   'tests/colors',
   'tests/gfx/base-geom',
   'tests/gfx/canvas',
   'tests/io/sdf',
+  'tests/unique-object-id-pool'
 ];
 
 // require the unit tests.

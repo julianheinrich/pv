@@ -5,7 +5,7 @@ requirejs.config({
   // minified PV version. Grunt needs to be run before for this to work.
   /*
   paths : {
-    pv : '/js/pv.min'
+    pv : '/js/bio-pv.min'
   }
   */
 });
@@ -24,6 +24,13 @@ var viewpoint = pv.viewpoint;
 var color = pv.color;
 
 var structure;
+
+function points() {
+  viewer.clear();
+  viewer.points('structure', structure, {
+                color: color.byResidueProp('num'),
+                showRelated : '1' });
+}
 
 function lines() {
   viewer.clear();
@@ -143,6 +150,19 @@ function ss() {
   viewer.requestRedraw();
 }
 
+function superpose() {
+  io.fetchPdb('pdbs/1ake.pdb', function(m1) {
+    io.fetchPdb('pdbs/1ake.pdb', function(m2) {
+      var ch1 = m1.select({chain : 'A', aname : 'CA'});
+      var ch2 = m2.select({chain : 'B', aname : 'CA' });
+      pv.mol.superpose(ch1, ch2);
+      viewer.tube('subject', ch1, { color : color.uniform('red') });
+      viewer.tube('reference', ch2, { color : color.uniform('yellow') });
+      viewer.centerOn(ch2);
+    });
+  });
+}
+
 function proInRed() {
   viewer.forEach(function(go) {
     go.colorBy(color.uniform('red'), go.select({rname : 'PRO'}));
@@ -217,6 +237,7 @@ $('#style-sline').click(sline);
 $('#style-trace').click(trace);
 $('#style-lines').click(lines);
 $('#style-balls-and-sticks').click(ballsAndSticks);
+$('#style-points').click(points);
 $('#style-spheres').click(spheres);
 $('#color-uniform').click(uniform);
 $('#color-element').click(byElement);
@@ -228,12 +249,12 @@ $('#load-from-pdb').change(function() {
   var pdbId = this.value;
   this.value = '';
   this.blur();
-  $.ajax('http://www.rcsb.org/pdb/files/'+pdbId+'.pdb')
-    .done(function(data) {
-      structure = io.pdb(data);
-      cartoon();
-      viewer.autoZoom();
-    })
+  io.fetchPdb('http://pdb.org/pdb/files/' + pdbId + '.pdb', 
+              function(s) {
+    structure = s;
+    cartoon();
+    viewer.autoZoom();
+  });
 });
 $('#view-entropy').click(function() {
   console.log("Entropy: " + computeEntropy());
@@ -252,7 +273,7 @@ viewer = pv.Viewer(document.getElementById('viewer'), {
     outline : true, quality : 'medium',
     background : '#333', animateTime: 500,
 });
-viewer.addListener('viewerReady', longHelices);
+viewer.addListener('viewerReady', superpose);
 window.addEventListener('resize', function() {
       viewer.fitParent();
 });

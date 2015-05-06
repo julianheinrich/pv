@@ -64,9 +64,22 @@ Documentation for pv is available [here](http://pv.readthedocs.org).
 Changelog
 ----------------------------------------
 
-### New Since Latest Release
+### New since Latest Release
+
+- PDB import: Improved code to guess element from atom name. This fixes issues in correctly detecting hydrogen atoms for some cases.
+
+### New in Version 1.6.0
+
+- Added option to set field of view (FOV)
+- Added "points" rendering mode in which every atom is rendered as a point. This is useful for rendering point clouds.
+- Get BioJS snippets working again (@greenify)
+
+### New in Version 1.5.0
 
 - Added Viewer.spin command to spin the camera around an axis
+- Relax some limits on number of elements that could be rendered at full connectivity level. Now it would theoretically be possible to render 2^24 atoms, even though the amount of geometry is likely to take down the browser.
+- Fix rendering for very long RNA molecules that broke some assumptions in the cartoon rendering code (1J5E, for example see issue [#82](https://github.com/biasmv/pv/issues/82)).
+- Improve heuristics to determine whether two residues belong to the same trace by not introducing trace breaks in case the residues are connected by a bond. This allows users to manually set bonds in case they have other means of knowing that two residues are to part of the same trace ([#83](https://github.com/biasmv/pv/issues/83)).
 
 ### New in Version 1.4.0
 

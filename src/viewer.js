@@ -22,8 +22,8 @@
 define([
   './gl-matrix', 
   './color', 
-  './slab', 
   './unique-object-id-pool', 
+  './gfx/canvas', 
   './utils', 
   './gfx/framebuffer', 
   './buffer-allocators', 
@@ -36,12 +36,12 @@ define([
   './gfx/custom-mesh', 
   './gfx/animation', 
   './gfx/scene-node',
-  './gfx/canvas'], 
+  './slab'], 
   function(
     glMatrix, 
     color, 
-    slab, 
     UniqueObjectIdPool, 
+    canvas, 
     utils, 
     FrameBuffer, 
     PoolAllocator, 
@@ -54,7 +54,10 @@ define([
     CustomMesh, 
     anim, 
     SceneNode,
-    canvas) {
+    // slab must be last due to a problem in AMDClean that occurs
+    // when the last parameter name does not match the module file 
+    // name
+    slab) {
 
 "use strict";
 
@@ -190,6 +193,7 @@ Viewer.prototype = {
       slabMode : slabModeToStrategy(opts.slabMode),
       atomClick: opts.atomClicked || opts.atomClick || null,
       outline : optValue(opts, 'outline', true),
+      fov : optValue(opts, 'fov', 45.0),
       // for backwards compatibility
       atomDoubleClicked : optValue(opts, 'atomDoubleClicked', 
                                    optValue(opts, 'atomDoubleClick', 'center')),
@@ -250,6 +254,9 @@ Viewer.prototype = {
         this._cam.fog(value);
         this._options.fog = value;
         this.requestRedraw();
+      } else if (optName === 'fov') {
+        this._options.fov = value;
+        this._cam.setFieldOfViewY(value * Math.PI / 180.0);
       } else {
         this._options[optName] = value;
       }
@@ -267,15 +274,15 @@ Viewer.prototype = {
       return;
     }
     if (qual === 'medium') {
-      this._options.arcDetail = 3;
+      this._options.arcDetail = 2;
       this._options.sphereDetail = 10;
-      this._options.splineDetail = 4;
+      this._options.splineDetail = 5;
       return;
     }
     if (qual === 'low') {
       this._options.arcDetail = 2;
       this._options.sphereDetail = 8;
-      this._options.splineDetail = 2;
+      this._options.splineDetail = 3;
       return;
     }
     console.error('invalid quality argument', qual);
@@ -296,7 +303,7 @@ Viewer.prototype = {
 
   _initViewer : function() {
     if (!this._canvas.initGL()) {
-      this._domElement.removeChild(this._canvas);
+      this._domElement.removeChild(this._canvas.domElement());
       this._domElement.innerHTML = WEBGL_NOT_SUPPORTED;
       this._domElement.style.width = this._options.width + 'px';
       this._domElement.style.height = this._options.height + 'px';
@@ -310,6 +317,7 @@ Viewer.prototype = {
     this._cam.setUpsamplingFactor(this._canvas.superSamplingFactor());
     this._cam.fog(this._options.fog);
     this._cam.setFogColor(this._options.background);
+    this._cam.setFieldOfViewY(this._options.fov * Math.PI / 180.0);
     this._mouseHandler.setCam(this._cam);
 
     var c = this._canvas;
@@ -317,7 +325,7 @@ Viewer.prototype = {
     this._shaderCatalog = {
       hemilight : c.initShader(shaders.HEMILIGHT_VS, shaders.HEMILIGHT_FS, p),
       outline : c.initShader(shaders.OUTLINE_VS, shaders.OUTLINE_FS, p),
-      lines : c.initShader(shaders.HEMILIGHT_VS, shaders.LINES_FS, p),
+      lines : c.initShader(shaders.LINES_VS, shaders.LINES_FS, p),
       text : c.initShader(shaders.TEXT_VS, shaders.TEXT_FS, p),
       select : c.initShader(shaders.SELECT_VS, shaders.SELECT_FS, p)
     };
@@ -341,6 +349,10 @@ Viewer.prototype = {
     }
     this._redrawRequested = true;
     requestAnimFrame(this._boundDraw);
+  },
+
+  boundingClientRect : function() {
+    return this._domElement.getBoundingClientRect();
   },
 
   _drawWithPass : function(pass) {
@@ -507,7 +519,7 @@ Viewer.prototype = {
 
   RENDER_MODES : [ 
     'sline', 'lines', 'trace', 'lineTrace', 'cartoon', 'tube', 'spheres', 
-    'ballsAndSticks',
+    'ballsAndSticks', 'points'
   ],
 
   /// simple dispatcher which allows to render using a certain style.
@@ -626,6 +638,14 @@ Viewer.prototype = {
     options.color = options.color || color.byElement();
     options.lineWidth = options.lineWidth || 4.0;
     var obj = render.lines(structure, this._canvas.gl(), options);
+    return this.add(name, obj);
+  },
+
+  points : function(name, structure, opts) {
+    var options = this._handleStandardMolOptions(opts, structure);
+    options.color = options.color || color.byElement();
+    options.pointSize = options.pointSize || 1.0;
+    var obj = render.points(structure, this._canvas.gl(), options);
     return this.add(name, obj);
   },
 
@@ -762,9 +782,11 @@ Viewer.prototype = {
       return this._rockAndRoll !== null;
     }
     if (!!enable) {
-      this._rockAndRoll = anim.rockAndRoll();
-      this._animControl.add(this._rockAndRoll);
-      this.requestRedraw();
+      if (this._rockAndRoll === null) {
+        this._rockAndRoll = anim.rockAndRoll();
+        this._animControl.add(this._rockAndRoll);
+        this.requestRedraw();
+      }
       return true;
     } 
     this._animControl.remove(this._rockAndRoll);
@@ -787,8 +809,13 @@ Viewer.prototype = {
       speed = Math.PI/8;
     }
     axis = axis || [0, 1, 0];
-    this._spin = anim.spin(axis, speed);
-    this._animControl.add(this._spin);
+    if (this._spin === null) {
+      this._spin = anim.spin(axis, speed);
+      this._animControl.add(this._spin);
+    } else {
+      this._spin.setSpeed(speed);
+      this._spin.setAxis(axis);
+    }
     this.requestRedraw();
     return true;
   },
@@ -845,11 +872,8 @@ Viewer.prototype = {
     if (pixels.data) {
       pixels = pixels.data;
     }
-    if (pixels[3] === 0) {
-      return null;
-    }
-    var objId = pixels[0] | pixels[1] << 8;
-    var symIndex = pixels[2];
+    var objId = pixels[0] | (pixels[1] << 8) | (pixels[2] << 16);
+    var symIndex = pixels[3];
 
     var obj = this._objectIdManager.objectForId(objId);
     if (obj === undefined) {
