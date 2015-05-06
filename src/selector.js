@@ -52,7 +52,13 @@ function Selector(structure, pViewer, geom, options) {
       if (originalEvent.keyCode === 13) {
         
         var view = new mol.MolView(that.geom);
-        view.addResidues(that.selectedResidues, true);
+        if (that.selectedResidues.length) {
+          var chain = view.addChain(that.selectedResidues[0].chain());
+          that.selectedResidues.forEach(function(residue) {
+            chain.addResidue(residue, true);
+          });
+        }
+//        view.addResidues(that.selectedResidues, true);
         pViewer.fitTo(view);
         originalEvent.preventDefault();
       }
@@ -83,7 +89,13 @@ Selector.prototype.fireSelectionChanged = function(view) {
 Selector.prototype.addResidueSelection = function(selectedResidues) {
   var that = this;
   var view = new mol.MolView(this.geom);
-  view.addResidues(selectedResidues, true);
+  if (selectedResidues.length) {
+    var chain = view.addChain(selectedResidues[0].chain());
+    selectedResidues.forEach(function(residue) {
+      chain.addResidue(residue, true);
+    });
+  }
+//  view.addResidues(selectedResidues, true);
   var changed = false;
   selectedResidues.forEach(function (residue) {
     
@@ -129,13 +141,18 @@ Selector.prototype.clearSelection = function(selectedResidues) {
     selectedResidues = this.selectedResidues;
     all = true;
   }
-  var view = new mol.MolView(this.geom);
-  view.addResidues(selectedResidues, true);
+  var view = this.structure.full().createEmptyView();
+  if (selectedResidues.length) {
+    var chain = view.addChain(selectedResidues[0].chain());
+    selectedResidues.forEach(function(residue) {
+      chain.addResidue(residue, true);
+    });
+  }
+//  view.addChain(selectedResidues);
   that.geom.colorBy(that.existingColorScheme(), view);
   if (selectedResidues) {
     selectedResidues.forEach(function (residue) {
       delete that.existingColors[residue.qualifiedName()];
-      
     });
   }
   if (all) {
