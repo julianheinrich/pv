@@ -1,4 +1,4 @@
-// Copyright (c) 2013-2014 Marco Biasini
+// Copyright (c) 2013-2015 Marco Biasini
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to
@@ -18,10 +18,15 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-var geom = (function() {
-  "use strict";
-  // calculates the signed angle of vectors a and b with respect to
-  // the reference normal c. 
+define(['gl-matrix'], function(glMatrix) {
+"use strict";
+
+var vec3 = glMatrix.vec3;
+var mat3 = glMatrix.mat3;
+var quat = glMatrix.quat;
+
+// calculates the signed angle of vectors a and b with respect to
+// the reference normal c. 
 var signedAngle = (function() {
     var tmp = vec3.create();
     return function(a, b, c) {
@@ -182,21 +187,109 @@ function Sphere(center, radius) {
   this._radius = radius || 1.0;
 }
 
+
+// returns a quaternion which, when converted to matrix form, contains the 
+// eigen-vectors of the symmetric matrix "a".
+// 
+// Code adapted from http://www.melax.com/diag/
+var diagonalizer = (function() { 
+  var Q = mat3.create();
+  var D = mat3.create();
+  var tmp1 = mat3.create();
+  var tmp2 = mat3.create();
+  var jr = quat.create();
+  var offDiag = vec3.create();
+  var magOffDiag = vec3.create();
+  return function(a) {
+    var maxsteps = 24;  // certainly wont need that many.
+    var q = quat.fromValues(0,0,0,1);
+    for(var i = 0; i < maxsteps; ++i) {
+      mat3.fromQuat(Q, q); // v*Q == q*v*conj(q)
+      var transQ = mat3.transpose(tmp1, Q);
+      mat3.mul(D, Q, mat3.mul(tmp2, a, transQ));
+      vec3.set(offDiag, D[5], D[2], D[1]);
+      vec3.set(magOffDiag, Math.abs(offDiag[0]), Math.abs(offDiag[1]), 
+               Math.abs(offDiag[2]));
+      // get index of largest element off-diagonal element
+      var k = (magOffDiag[0] > magOffDiag[1] &&
+               magOffDiag[0] > magOffDiag[2]) ? 0 : 
+              (magOffDiag[1] > magOffDiag[2]) ? 1 : 2;
+      var k1 = (k + 1) % 3;
+      var k2 = (k + 2) % 3;
+      if (offDiag[k] === 0.0)  {
+        break;  // diagonal already
+      }
+      var thet = (D[k2 * 3 + k2] - D[k1 * 3 + k1]) / (2.0 * offDiag[k]);
+      var sgn = (thet > 0.0) ? 1.0 : -1.0;
+      thet *= sgn; // make it positive
+      var div = (thet + ((thet < 1.E6) ? Math.sqrt(thet * thet + 1.0) : thet));
+      var t = sgn / div;
+      var c = 1.0 / Math.sqrt(t * t + 1.0); 
+      if(c === 1.0) {
+        // no room for improvement - reached machine precision.
+        break;
+      }  
+      vec3.set(jr, 0, 0, 0, 0); // jacobi rotation for this iteration.
+      // using 1/2 angle identity sin(a/2) = sqrt((1-cos(a))/2)  
+      jr[k] = sgn * Math.sqrt((1.0 - c) / 2.0);  
+      // since our quat-to-matrix convention was for v*M instead of M*v
+      jr[k] *= -1.0; 
+      jr[3]  = Math.sqrt(1.0 - jr[k] * jr[k]);
+      if (jr[3] === 1.0)  { 
+        break; // reached limits of floating point precision
+      }
+      q =  quat.mul(q, q, jr);
+      quat.normalize(q, q);
+    } 
+    return q;
+  };
+})();
+
 Sphere.prototype.center = function() { return this._center; };
 Sphere.prototype.radius = function() { return this._radius; };
+
+// derive a rotation matrix which rotates the z-axis onto tangent. when
+// left is given and use_hint is true, x-axis is chosen to be as close
+// as possible to left.
+//
+// upon returning, left will be modified to contain the updated left
+// direction.
+var buildRotation = (function() {
+  return function(rotation, tangent, left, up, use_left_hint) {
+    if (use_left_hint) { vec3.cross(up, tangent, left);
+    } else {
+      ortho(up, tangent);
+    }
+
+    vec3.cross(left, up, tangent);
+    vec3.normalize(up, up);
+    vec3.normalize(left, left);
+    rotation[0] = left[0];
+    rotation[1] = left[1];
+    rotation[2] = left[2];
+
+    rotation[3] = up[0];
+    rotation[4] = up[1];
+    rotation[5] = up[2];
+
+    rotation[6] = tangent[0];
+    rotation[7] = tangent[1];
+    rotation[8] = tangent[2];
+}
+;
+})();
 
 return {
   signedAngle : signedAngle,
   axisRotation : axisRotation,
   ortho : ortho,
+  diagonalizer : diagonalizer,
   catmullRomSpline : catmullRomSpline,
   cubicHermiteInterpolate : cubicHermiteInterpolate,
   catmullRomSplineNumPoints : catmullRomSplineNumPoints,
-  Sphere : Sphere
+  Sphere : Sphere,
+  buildRotation : buildRotation
 };
 
-})();
+});
 
-if(typeof(exports) !== 'undefined') {
-  module.exports = geom;
-}

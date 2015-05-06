@@ -1,4 +1,4 @@
-// Copyright (c) 2013-2014 Marco Biasini
+// Copyright (c) 2013-2015 Marco Biasini
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to
@@ -18,28 +18,73 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-var pv = (function(){
+
+define([
+  './gl-matrix', 
+  './color', 
+  './slab', 
+  './unique-object-id-pool', 
+  './utils', 
+  './gfx/framebuffer', 
+  './buffer-allocators', 
+  './gfx/cam', 
+  './gfx/shaders', 
+  './touch', 
+  './mouse', 
+  './gfx/render', 
+  './gfx/label', 
+  './gfx/custom-mesh', 
+  './gfx/animation', 
+  './gfx/scene-node',
+  './gfx/canvas'], 
+  function(
+    glMatrix, 
+    color, 
+    slab, 
+    UniqueObjectIdPool, 
+    utils, 
+    FrameBuffer, 
+    PoolAllocator, 
+    Cam, 
+    shaders, 
+    TouchHandler, 
+    MouseHandler,
+    render, 
+    TextLabel, 
+    CustomMesh, 
+    anim, 
+    SceneNode,
+    canvas) {
 
 "use strict";
 
 // FIXME: Browser vendors tend to block quite a few graphic cards. Instead
 //   of showing this very generic message, implement a per-browser
 //   diagnostic. For example, when we detect that we are running a recent
-//   Chrome and Webgl is not available, we should say that the user is
+//   Chrome and WebGL is not available, we should say that the user is
 //   supposed to check chrome://gpu for details on why WebGL is not
 //   available. Similar troubleshooting pages are available for other
 //   browsers.
 var WEBGL_NOT_SUPPORTED = '\
 <div style="vertical-align:middle; text-align:center;">\
-<h1>Oink</h1><p>Your browser does not support WebGL. \
+<h1>WebGL not supported</h1><p>Your browser does not support WebGL. \
 You might want to try Chrome, Firefox, IE 11, or newer versions of Safari\
 </p>\
 <p>If you are using a recent version of one of the above browsers, your \
-graphic card might be blocked. Check the browser documentation for details\
+graphic card might be blocked. Check the browser documentation for details \
+on how to unblock it.\
 </p>\
 </div>';
 
 
+var vec3 = glMatrix.vec3;
+var mat4 = glMatrix.mat4;
+
+function shouldUseHighPrecision() {
+  // high precision for shaders is only required on iOS, all the other browsers 
+  // are doing just fine with mediump.
+  return (/(iPad|iPhone|iPod)/g).test( navigator.userAgent );
+}
 
 var requestAnimFrame = (function(){
   return window.requestAnimationFrame || window.webkitRequestAnimationFrame ||
@@ -52,970 +97,13 @@ var requestAnimFrame = (function(){
 function slabModeToStrategy(mode, options) {
   mode = mode || 'auto';
   if (mode === 'fixed') {
-    return new FixedSlab(options);
+    return new slab.FixedSlab(options);
   }
   if (mode === 'auto') {
-    return new AutoSlab(options);
+    return new slab.AutoSlab(options);
   }
   return null;
 }
-
-function PV(domElement, opts) {
-  opts = opts || {};
-  this._options = {
-    width : (opts.width || 500),
-    height : (opts.height || 500),
-    animateTime : (opts.animateTime || 0),
-    antialias : opts.antialias,
-    quality : opts.quality || 'low',
-    style : opts.style || 'hemilight',
-    background : opts.background ? forceRGB(opts.background) : vec3.fromValues(1,1,1),
-    slabMode : slabModeToStrategy(opts.slabMode),
-    atomClick: opts.atomClick || null,
-    fog : true,
-    atomDoubleClick : 'center', // option is handled below
-  };
-  this._objects = [];
-  this._domElement = domElement;
-  this._redrawRequested = false;
-  this._resize = false;
-  this._lastTimestamp = null;
-  this.listenerMap = {};
-  // NOTE: make sure to only request features supported by all browsers,
-  // not only browsers that support WebGL in this constructor. WebGL
-  // detection only happens in PV._initGL. Once this happened, we are
-  // save to use whatever feature pleases us, e.g. typed arrays, 2D 
-  // contexts etc.
-  this._canvas = document.createElement('canvas');
-  // need to set a tab index to the parent div so that we can programatically set focus.
-  // a value of -1 means the user cannot select it, as it can only be set programatically.
-  this._domElement.setAttribute('tabindex', -1);
-  this._textureCanvas = document.createElement('canvas');
-  this._textureCanvas.style.display = 'none';
-  this._objectIdManager = new UniqueObjectIdPool();
-  var parentRect = domElement.getBoundingClientRect();
-  if (this._options.width === 'auto') {
-    this._options.width = parentRect.width;
-  }
-  if (this._options.height === 'auto') {
-    this._options.height = parentRect.height;
-  }
-  if ('outline' in opts) {
-    this._options.outline = opts.outline;
-  } else {
-    this._options.outline = true;
-  }
-  if ('atomDoubleClicked' in opts) {
-    this._options.atomDoubleClick = opts.atomDoubleClick;
-  }
-  if ('fog' in opts) {
-    this._options.fog = opts.fog;
-  }
-  this._ok = false;
-  this._camAnim = { 
-      center : null, zoom : null, 
-      rotation : null 
-  };
-  this.quality(this._options.quality);
-  this._canvas.width = this._options.width;
-  this._canvas.height = this._options.height;
-  this._domElement.appendChild(this._canvas);
-  this._domElement.appendChild(this._textureCanvas);
-
-  if (document.readyState === "complete" ||  
-    document.readyState === "loaded" ||  
-      document.readyState === "interactive") {
-    this._initPV();
-  } else {
-    document.addEventListener('DOMContentLoaded', bind(this, this._initPV));
-  }
-  if (this._options.atomDoubleClick !== null) {
-    this.addListener('atomDoubleClicked', this._options.atomDoubleClick);
-  }
-  if (this._options.atomClick !== null) {
-    this.addListener('atomClicked', this._options.atomClick);
-  }
-}
-
-PV.prototype._centerOnClicked = function(picked, originalEvent) {
-  if (picked === null) {
-    return;
-  }
-  var transformedPos = vec3.create();
-  var newAtom = picked.object().atom;
-  var pos = newAtom.pos();
-  if (picked.transform()) {
-    vec3.transformMat4(transformedPos, pos, picked.transform());
-    this.setCenter(transformedPos, this._options.animateTime);
-  } else {
-    this.setCenter(pos, this._options.animateTime);
-  }
-};
-  
-
-// resizes the canvas, separated out from PV.resize because we want
-// to call this function directly in a requestAnimationFrame together
-// with rendering to avoid flickering.
-PV.prototype._ensureSize = function() {
-  if (!this._resize) {
-    return;
-  }
-  this._resize = false;
-  this._options.realWidth = this._options.width * this._options.samples;
-  this._options.realHeight = this._options.height * this._options.samples;
-  this._gl.viewport(0, 0, this._options.realWidth, this._options._realHeight);
-  this._canvas.width = this._options.realWidth;
-  this._canvas.height = this._options.realHeight;
-  this._cam.setViewportSize(this._options.realWidth, this._options.realHeight);
-  if (this._options.samples > 1) {
-    this._initManualAntialiasing(this._options.samples);
-  }
-  this._pickBuffer.resize(this._options.width, this._options.height);
-  this._entropyBuffer.resize(this.ENTROPY_BUFFER_WIDTH, this.ENTROPY_BUFFER_HEIGHT);
-};
-
-PV.prototype.resize = function(width, height) {
-  if (width === this._options.width && height === this._options.height) {
-    return;
-  }
-  this._resize = true;
-  this._options.width = width;
-  this._options.height = height;
-  this.requestRedraw();
-};
-
-PV.prototype.fitParent = function() {
-  var parentRect = this._domElement.getBoundingClientRect();
-  this.resize(parentRect.width, parentRect.height);
-};
-
-PV.prototype.gl = function() {
-  return this._gl;
-};
-
-PV.prototype.ok = function() {
-  return this._ok;
-};
-
-PV.prototype.options = function(optName, value) {
-  if (value !== undefined) {
-    if (optName === 'fog') {
-      this._cam.fog(value);
-      this._options.fog = value;
-      this.requestRedraw();
-    } else {
-      this._options[optName] = value;
-    }
-    return value;
-  }
-  return this._options[optName];
-};
-
-PV.prototype.quality = function(qual) {
-  this._options.quality = qual;
-  if (qual === 'high') {
-    this._options.arcDetail = 4;
-    this._options.sphereDetail = 16;
-    this._options.splineDetail = 8;
-    return;
-  }
-  if (qual === 'medium') {
-    this._options.arcDetail = 3;
-    this._options.sphereDetail = 10;
-    this._options.splineDetail = 4;
-    return;
-  }
-  if (qual === 'low') {
-    this._options.arcDetail = 2;
-    this._options.sphereDetail = 8;
-    this._options.splineDetail = 2;
-    return;
-  }
-  console.error('invalid quality argument', qual);
-};
-
-// returns the content of the WebGL context as a data URL element which can be
-// inserted into an img element. This allows users to save a picture to disk
-PV.prototype.imageData = function() {
-  return this._canvas.toDataURL();
-};
-
-PV.prototype._initContext = function() {
-  try {
-    var contextOpts = {
-      antialias : this._options.antialias,
-      preserveDrawingBuffer : true // for image export
-    };
-    this._gl = this._canvas.getContext('experimental-webgl', contextOpts);
-  }
-  catch (err) {
-    console.error('WebGL not supported', err);
-    return false;
-  }
-  if (!this._gl) {
-    console.error('WebGL not supported');
-    return false;
-  }
-  return true;
-};
-
-PV.prototype._initManualAntialiasing = function(samples) {
-  var scale_factor = 1.0 / samples;
-  var trans_x = -(1 - scale_factor) * 0.5 * this._options.realWidth;
-  var trans_y = -(1 - scale_factor) * 0.5 * this._options.realHeight;
-  var translate = 'translate(' + trans_x + 'px, ' + trans_y + 'px)';
-  var scale = 'scale(' + scale_factor + ', ' + scale_factor + ')';
-  var transform = translate + ' ' + scale;
-
-  this._canvas.style.webkitTransform = transform;
-  this._canvas.style.transform = transform;
-  this._canvas.style.ieTransform = transform;
-  this._canvas.width = this._options.realWidth;
-  this._canvas.height = this._options.realHeight;
-};
-
-PV.prototype._initPickBuffer = function() {
-  var fbOptions = {
-    width : this._options.width, height : this._options.height
-  };
-  this._pickBuffer = new FrameBuffer(this._gl, fbOptions);
-};
-
-PV.prototype.ENTROPY_BUFFER_WIDTH = 512;
-PV.prototype.ENTROPY_BUFFER_HEIGHT = 512;
-
-PV.prototype._initEntropyBuffer = function() {
-  var fbOptions = {
-    width : this.ENTROPY_BUFFER_WIDTH, height : this.ENTROPY_BUFFER_HEIGHT
-  };
-  this._entropyBuffer = new FrameBuffer(this._gl, fbOptions);
-};
-
-PV.prototype._initGL = function() {
-  var samples = 1;
-  if (!this._initContext()) {
-    return false;
-  }
-
-  if (!this._gl.getContextAttributes().antialias && this._options.antialias) {
-    samples = 2;
-  }
-  this._options.realWidth = this._options.width * samples;
-  this._options.realHeight = this._options.height * samples;
-  this._options.samples = samples;
-  if (samples > 1) {
-    this._initManualAntialiasing(samples);
-  }
-  this._gl.viewportWidth = this._options.realWidth;
-  this._gl.viewportHeight = this._options.realHeight;
-
-  this._gl.clearColor(this._options.background[0], this._options.background[1], this._options.background[2], 1.0);
-  this._gl.lineWidth(2.0);
-  this._gl.cullFace(this._gl.FRONT);
-  this._gl.enable(this._gl.CULL_FACE);
-  this._gl.enable(this._gl.DEPTH_TEST);
-  this._initPickBuffer();
-  this._initEntropyBuffer();
-  return true;
-};
-
-PV.prototype._shaderFromString = function(shader_code, type) {
-  var shader;
-  if (type === 'fragment') {
-    shader = this._gl.createShader(this._gl.FRAGMENT_SHADER);
-  } else if (type === 'vertex') {
-    shader = this._gl.createShader(this._gl.VERTEX_SHADER);
-  } else {
-    console.error('could not determine type for shader');
-    return null;
-  }
-  this._gl.shaderSource(shader, shader_code);
-  this._gl.compileShader(shader);
-  if (!this._gl.getShaderParameter(shader, this._gl.COMPILE_STATUS)) {
-    console.error(this._gl.getShaderInfoLog(shader));
-    return null;
-  }
-  return shader;
-};
-
-PV.prototype._initShader = function(vert_shader, frag_shader) {
-  var fs = this._shaderFromString(frag_shader, 'fragment');
-  var vs = this._shaderFromString(vert_shader, 'vertex');
-  var shaderProgram = this._gl.createProgram();
-  this._gl.attachShader(shaderProgram, vs);
-  this._gl.attachShader(shaderProgram, fs);
-  this._gl.linkProgram(shaderProgram);
-  if (!this._gl.getProgramParameter(shaderProgram, this._gl.LINK_STATUS)) {
-    console.error('could not initialise shaders');
-    console.error(this._gl.getShaderInfoLog(shaderProgram));
-    return null;
-  }
-  this._gl.clearColor(this._options.background[0], this._options.background[1], this._options.background[2], 1.0);
-  this._gl.enable(this._gl.BLEND);
-  this._gl.blendFunc(this._gl.SRC_ALPHA, this._gl.ONE_MINUS_SRC_ALPHA);
-  this._gl.enable(this._gl.CULL_FACE);
-  this._gl.enable(this._gl.DEPTH_TEST);
-
-  // get vertex attribute location for the shader once to
-  // avoid repeated calls to getAttribLocation/getUniformLocation
-  var getAttribLoc = bind(this._gl, this._gl.getAttribLocation);
-  var getUniformLoc = bind(this._gl, this._gl.getUniformLocation);
-  shaderProgram.posAttrib = getAttribLoc(shaderProgram, 'attrPos');
-  shaderProgram.colorAttrib = getAttribLoc(shaderProgram, 'attrColor');
-  shaderProgram.normalAttrib = getAttribLoc(shaderProgram, 'attrNormal');
-  shaderProgram.objIdAttrib = getAttribLoc(shaderProgram, 'attrObjId');
-  shaderProgram.symId = getUniformLoc(shaderProgram, 'symId');
-  shaderProgram.projection = getUniformLoc(shaderProgram, 'projectionMat');
-  shaderProgram.modelview = getUniformLoc(shaderProgram, 'modelviewMat');
-  shaderProgram.rotation = getUniformLoc(shaderProgram, 'rotationMat');
-  shaderProgram.fog = getUniformLoc(shaderProgram, 'fog');
-  shaderProgram.fogFar = getUniformLoc(shaderProgram, 'fogFar');
-  shaderProgram.fogNear = getUniformLoc(shaderProgram, 'fogNear');
-  shaderProgram.fogColor = getUniformLoc(shaderProgram, 'fogColor');
-  shaderProgram.outlineColor = getUniformLoc(shaderProgram, 'outlineColor');
-
-  return shaderProgram;
-};
-
-PV.prototype._mouseUp = function(event) {
-  this._canvas.removeEventListener('mousemove', this._mouseRotateListener, false);
-  this._canvas.removeEventListener('mousemove', this._mousePanListener, false);
-  this._canvas.removeEventListener('mouseup', this._mouseUpListener, false);
-  document.removeEventListener('mouseup', this._mouseUpListener, false);
-  document.removeEventListener('mousemove', this._mouseRotateListener);
-  document.removeEventListener('mousemove', this._mousePanListener);
-};
-
-PV.prototype._initPV = function() {
-  if (!this._initGL()) {
-    this._domElement.removeChild(this._canvas);
-    this._domElement.innerHTML = WEBGL_NOT_SUPPORTED;
-    this._domElement.style.width = this._options.width + 'px';
-    this._domElement.style.height = this._options.height + 'px';
-    return false;
-  }
-  this._ok = true;
-  this._2dcontext = this._textureCanvas.getContext('2d');
-  this._float32Allocator = new PoolAllocator(Float32Array);
-  this._uint16Allocator = new PoolAllocator(Uint16Array);
-  this._cam = new Cam(this._gl);
-  this._cam.fog(this._options.fog);
-  this._shaderCatalog = {
-    hemilight : this._initShader(shaders.HEMILIGHT_VS, shaders.HEMILIGHT_FS),
-    outline : this._initShader(shaders.OUTLINE_VS, shaders.OUTLINE_FS),
-    lines : this._initShader(shaders.HEMILIGHT_VS, shaders.LINES_FS),
-    text : this._initShader(shaders.TEXT_VS, shaders.TEXT_FS),
-    select : this._initShader(shaders.SELECT_VS, shaders.SELECT_FS)
-  };
-
-  this._boundDraw = bind(this, this._draw);
-
-  this._mousePanListener = bind(this, this._mousePan);
-  this._mouseRotateListener = bind(this, this._mouseRotate);
-  this._mouseUpListener = bind(this, this._mouseUp);
-
-  // Firefox responds to the wheel event, whereas other browsers listen to
-  // the mousewheel event. Register different event handlers, depending on
-  // what properties are available.
-  if ('onwheel' in this._canvas) {
-  this._canvas.addEventListener('wheel', bind(this, this._mouseWheelFF),
-                              false);
-  } else {
-  this._canvas.addEventListener('mousewheel', bind(this, this._mouseWheel),
-                              false);
-  }
-  this._canvas.addEventListener('dblclick', bind(this, this._mouseDoubleClick),
-                            false);
-  this._canvas.addEventListener('mousedown', bind(this, this._mouseDown),
-                            false);
-  this._canvas.addEventListener('click', bind(this, this._click),
-                            false);
-  this._touchHandler = new TouchHandler(this._canvas, this, this._cam);
-
-  return true;
-};
-
-PV.prototype.requestRedraw = function() {
-  if (this._redrawRequested) {
-    return;
-  }
-  this._redrawRequested = true;
-  requestAnimFrame(this._boundDraw);
-};
-
-PV.prototype._drawWithPass = function(pass) {
-  for (var i = 0, e = this._objects.length; i !== e; ++i) {
-    this._objects[i]
-        .draw(this._cam, this._shaderCatalog, this._options.style, pass);
-  }
-};
-
-PV.prototype.setCamera = function(rotation, center, zoom, ms) {
-  
-  ms |= 0;
-  if (ms === 0) {
-    this._cam.setCenter(center);
-    this._cam.setRotation(rotation);
-    this._cam.setZoom(zoom);
-    this.requestRedraw();
-    return;
-  }
-  this._camAnim.center = new Move(this._cam.center(), 
-                                  vec3.clone(center), ms);
-  this._camAnim.rotation = new Rotate(this._cam.rotation(), 
-      mat4.clone(rotation), ms);
-
-  this._camAnim.zoom = new Animation(this._cam.zoom(), 
-      zoom, ms);
-  this.requestRedraw();
-};
-
-// performs interpolation of current camera position
-PV.prototype._animateCam = function() {
-  var anotherRedraw = false;
-  if (this._camAnim.center) {
-    this._cam.setCenter(this._camAnim.center.step());
-    if (this._camAnim.center.finished()) {
-      this._camAnim.center = null;
-    }
-    anotherRedraw = true;
-  }
-  if (this._camAnim.rotation) {
-    this._cam.setRotation(this._camAnim.rotation.step());
-    if (this._camAnim.rotation.finished()) {
-      this._camAnim.rotation = null;
-    }
-    anotherRedraw = true;
-  }
-  if (this._camAnim.zoom) {
-    this._cam.setZoom(this._camAnim.zoom.step());
-    if (this._camAnim.zoom.finished()) {
-      this._camAnim.zoom = null;
-    }
-    anotherRedraw = true;
-  }
-  if (anotherRedraw) {
-    this.requestRedraw();
-  }
-};
-
-PV.prototype._draw = function() {
-  this._redrawRequested = false;
-  this._ensureSize();
-  this._animateCam();
-  var newSlab = this._options.slabMode.update(this._objects, this._cam);
-  if (newSlab !== null) {
-    this._cam.setNearFar(newSlab.near, newSlab.far);
-  }
-
-  this._gl.clear(this._gl.COLOR_BUFFER_BIT | this._gl.DEPTH_BUFFER_BIT);
-  this._gl.viewport(0, 0, this._options.realWidth, this._options.realHeight);
-  this._gl.cullFace(this._gl.FRONT);
-  this._gl.enable(this._gl.CULL_FACE);
-  this._gl.enable(this._gl.BLEND);
-  this._drawWithPass('normal');
-  if (!this._options.outline) {
-    return;
-  }
-  this._gl.cullFace(this._gl.BACK);
-  this._gl.enable(this._gl.CULL_FACE);
-  this._drawWithPass('outline');
-};
-
-PV.prototype.setCenter = function(center, ms) {
-  ms |= 0;
-  if (ms === 0) {
-    this._cam.setCenter(center);
-    return;
-  }
-  this._camAnim.center = new Move(this._cam.center(), 
-                                  vec3.clone(center), ms);
-  this.requestRedraw();
-};
-
-PV.prototype.setRotation = function(rotation, ms) {
-  ms |= 0;
-  if (ms === 0) {
-    this._cam.setRotation(rotation);
-    return;
-  }
-  this._camAnim.rotation = new Rotate(this._cam.rotation(), 
-      mat4.clone(rotation), ms);
-  this.requestRedraw();
-};
-
-PV.prototype.centerOn = function(what, ms) {
-  this.setCenter(what.center(), ms);
-};
-
-
-PV.prototype.clear = function() {
-  for (var i = 0; i < this._objects.length; ++i) {
-    this._objects[i].destroy();
-  }
-  this._objects = [];
-};
-
-PV.prototype._mouseWheel = function(event) {
-  this._cam.zoom(event.wheelDelta < 0 ? -1 : 1);
-  event.preventDefault();
-  this.requestRedraw();
-};
-
-PV.prototype._mouseWheelFF = function(event) {
-  this._cam.zoom(event.deltaY < 0 ? 1 : -1);
-  event.preventDefault();
-  this.requestRedraw();
-};
-
-PV.prototype._mouseDoubleClick = (function() {
-  return function(event) {
-    var rect = this._canvas.getBoundingClientRect();
-    var picked = this.pick(
-        { x : event.clientX - rect.left, y : event.clientY - rect.top });
-    this._dispatchPickedEvent(event, 'atomDoubleClicked', picked);
-    this.requestRedraw();
-  };
-})();
-
-
-PV.prototype.addListener = function(eventName, callback) {
-  
-  if (eventName === 'keypress' || eventName === 'keydown' || eventName === 'keyup') {
-    // handle keypress events directly onto the parent domElement
-    // mouse downs will make it have focus
-    this._domElement.addEventListener(eventName, bind(this, callback),
-        false);
-
-  }
-  else {
-    var callbacks = this.listenerMap[eventName];
-    if (typeof callbacks === 'undefined') {
-      callbacks = [];
-      this.listenerMap[eventName] = callbacks;
-    }
-    if (callback === 'center') {
-      callbacks.push(bind(this, this._centerOnClicked));
-    }
-    else {
-      callbacks.push(callback);
-    }
-  }
-};
-
-PV.prototype._dispatchPickedEvent = function(event, newEventName, picked) {
-  var callbacks = this.listenerMap[newEventName];
-  if (callbacks) {
-    
-    callbacks.forEach(function (callback) {
-      callback(picked, event);
-    });
-  }
-};
-
-PV.prototype._click = function(event) {
-  if (event.button !== 0) {
-    return;
-  }
-  // make sure it isn't a double click
-  var currentTime = (new Date()).getTime();
-  if (currentTime - this.lastClickTime < 200) {
-    
-    var rect = this._canvas.getBoundingClientRect();
-    var picked = this.pick(
-        { x : event.clientX - rect.left, y : event.clientY - rect.top });
-    this._dispatchPickedEvent(event, 'atomClicked', picked);
-    event.preventDefault();
-  } 
-};
-
-PV.prototype._mouseDown = function(event) {
-  if (event.button !== 0) {
-    return;
-  }
-  this._domElement.focus();
-  
-  var currentTime = (new Date()).getTime();
-  this.lastClickTime = currentTime;
-  
-//  if (typeof this.lastClickTime === 'undefined' || (currentTime - this.lastClickTime > 300)) {
-  event.preventDefault();
-  if (event.shiftKey === true) {
-    this._canvas.addEventListener('mousemove', this._mousePanListener, false);
-    document.addEventListener('mousemove', this._mousePanListener, false);
-  } else {
-    this._canvas.addEventListener('mousemove', this._mouseRotateListener,
-                                  false);
-    document.addEventListener('mousemove', this._mouseRotateListener, false);
-  }
-  this._canvas.addEventListener('mouseup', this._mouseUpListener, false);
-  document.addEventListener('mouseup', this._mouseUpListener, false);
-  this._lastMousePos = { x : event.pageX, y : event.pageY };
-};
-
-PV.prototype._mouseRotate = function(event) {
-  var newMousePos = { x : event.pageX, y : event.pageY };
-  var delta = {
-    x : newMousePos.x - this._lastMousePos.x,
-    y : newMousePos.y - this._lastMousePos.y
-  };
-
-  var speed = 0.005;
-  this._cam.rotateX(speed * delta.y);
-  this._cam.rotateY(speed * delta.x);
-  this._lastMousePos = newMousePos;
-  this.requestRedraw();
-};
-
-PV.prototype._mousePan = function(event) {
-  var newMousePos = { x : event.pageX, y : event.pageY };
-  var delta = {
-    x : newMousePos.x - this._lastMousePos.x,
-    y : newMousePos.y - this._lastMousePos.y
-  };
-
-  var speed = 0.05;
-  this._cam.panXY(speed * delta.x, speed * delta.y);
-  this._lastMousePos = newMousePos;
-  this.requestRedraw();
-};
-
-PV.prototype.RENDER_MODES =
-    [ 'sline', 'lines', 'trace', 'lineTrace', 'cartoon', 'tube', 'spheres', 'ballsAndSticks' ];
-
-/// simple dispatcher which allows to render using a certain style.
-//  will bail out if the render mode does not exist.
-PV.prototype.renderAs = function(name, structure, mode, opts) {
-  var found = false;
-  for (var i = 0; i < this.RENDER_MODES.length; ++i) {
-    if (this.RENDER_MODES[i] === mode) {
-      found = true;
-      break;
-    }
-  }
-  if (!found) {
-    console.error('render mode', mode, 'not supported');
-    return;
-  }
-  return this[mode](name, structure, opts);
-};
-
-
-PV.prototype._handleStandardOptions = function(opts) {
-  opts = copy(opts);
-  opts.float32Allocator = this._float32Allocator;
-  opts.uint16Allocator = this._uint16Allocator;
-  opts.idPool = this._objectIdManager;
-  opts.showRelated = opts.showRelated || 'asym';
-  return opts;
-};
-
-
-PV.prototype.lineTrace = function(name, structure, opts) {
-  var options = this._handleStandardOptions(opts);
-  options.color = options.color || color.uniform([ 1, 0, 1 ]);
-  options.lineWidth = options.lineWidth || 4.0;
-
-  var obj = render.lineTrace(structure, this._gl, options);
-  return this.add(name, obj);
-};
-
-PV.prototype.spheres = function(name, structure, opts) {
-  var options = this._handleStandardOptions(opts);
-  options.color = options.color || color.byElement();
-  options.sphereDetail = this.options('sphereDetail');
-  options.radiusMultiplier = options.radiusMultiplier || 1.0;
-
-  var obj = render.spheres(structure, this._gl, options);
-  return this.add(name, obj);
-};
-
-PV.prototype.sline = function(name, structure, opts) {
-  var options = this._handleStandardOptions(opts);
-  options.color = options.color || color.uniform([ 1, 0, 1 ]);
-  options.splineDetail = options.splineDetail || this.options('splineDetail');
-  options.strength = options.strength || 1.0;
-  options.lineWidth = options.lineWidth || 4.0;
-
-  var obj = render.sline(structure, this._gl, options);
-  return this.add(name, obj);
-};
-
-// internal method for debugging the auto-slabbing code. 
-// not meant to be used otherwise. Will probably be removed again.
-PV.prototype.boundingSpheres = function(gl, obj, options) {
-  var vertArrays = obj.vertArrays();
-  var mg = new MeshGeom(gl, options.float32Allocator, 
-                        options.uint16Allocator);
-  mg.order(100);
-  var protoSphere = new ProtoSphere(16, 16);
-  var vertsPerSphere = protoSphere.numVerts();
-  var indicesPerSphere = protoSphere.numIndices();
-  var vertAssoc = new AtomVertexAssoc(obj.structure());
-  mg.setVertAssoc(vertAssoc);
-  mg.addChainVertArray({ name : function() { return "a"; }}, 
-                       vertArrays.length * vertsPerSphere,
-                       indicesPerSphere * vertArrays.length);
-  mg.setShowRelated('asym');
-  var color = [0.5, 0.5, 0.5, 0.2];
-  var va = mg.vertArrayWithSpaceFor(vertsPerSphere * vertArrays.length);
-  for (var i = 0; i < vertArrays.length; ++i) {
-    var bs = vertArrays[i].boundingSphere();
-    protoSphere.addTransformed(va, bs.center(), bs.radius(), color, 0);
-  }
-  return mg;
-};
-
-PV.prototype.cartoon = function(name, structure, opts) {
-  var options = this._handleStandardOptions(opts);
-  options.color = options.color || color.bySS();
-  options.strength = options.strength || 1.0;
-  options.splineDetail = options.splineDetail || this.options('splineDetail');
-  options.arcDetail = options.arcDetail || this.options('arcDetail');
-  options.radius = options.radius || 0.3;
-  options.forceTube = options.forceTube || false;
-  var obj = render.cartoon(structure, this._gl, options);
-  var added = this.add(name, obj);
-  if (options.boundingSpheres) {
-    var boundingSpheres = this.boundingSpheres(this._gl, obj, options);
-    this.add(name+'.bounds', boundingSpheres);
-  }
-  return added;
-};
-
-
-PV.prototype.surface = function(name, data, opts) {
-  var options = this._handleStandardOptions(opts);
-  var obj = render.surface(data, this._gl, options);
-  return this.add(name, obj);
-};
-
-// renders the protein using a smoothly interpolated tube, essentially
-// identical to the cartoon render mode, but without special treatment for
-// helices and strands.
-PV.prototype.tube = function(name, structure, opts) {
-  opts = opts || {};
-  opts.forceTube = true;
-  return this.cartoon(name, structure, opts);
-};
-
-PV.prototype.ballsAndSticks = function(name, structure, opts) {
-  var options = this._handleStandardOptions(opts);
-
-  options.color = options.color || color.byElement();
-  options.radius = options.radius || 0.3;
-  options.arcDetail = (options.arcDetail || this.options('arcDetail')) * 2;
-  options.sphereDetail = options.sphereDetail || this.options('sphereDetail');
-
-  var obj = render.ballsAndSticks(structure, this._gl, options);
-  return this.add(name, obj);
-};
-
-PV.prototype.lines = function(name, structure, opts) {
-  var options = this._handleStandardOptions(opts);
-  options.color = options.color || color.byElement();
-  options.lineWidth = options.lineWidth || 4.0;
-  var obj = render.lines(structure, this._gl, options);
-  return this.add(name, obj);
-};
-
-PV.prototype.trace = function(name, structure, opts) {
-  var options = this._handleStandardOptions(opts);
-  options.color = options.color || color.uniform([ 1, 0, 0 ]);
-  options.radius = options.radius || 0.3;
-  options.arcDetail = (options.arcDetail || this.options('arcDetail')) * 2;
-  options.sphereDetail = options.sphereDetail || this.options('sphereDetail');
-
-  var obj = render.trace(structure, this._gl, options);
-  return this.add(name, obj);
-};
-
-PV.prototype.fitTo = function(what, slabMode) {
-  var axes = this._cam.mainAxes();
-  slabMode = slabMode || this._options.slabMode;
-  var intervals = [ new Range(), new Range(), new Range() ];
-  if (what instanceof SceneNode) {
-    what.updateProjectionIntervals(axes[0], axes[1], axes[2], intervals[0],
-                                   intervals[1], intervals[2]);
-  } else if (what.eachAtom !== undefined) {
-    what.eachAtom(function(atom) {
-      var pos = atom.pos();
-      for (var i = 0; i < 3; ++i) {
-        intervals[i].update(vec3.dot(pos, axes[i]));
-      }
-    });
-    for (var i = 0; i < 3; ++i) {
-      intervals[i].extend(1.5);
-    }
-  }
-  this._fitToIntervals(axes, intervals, slabMode);
-};
-
-PV.prototype._fitToIntervals = function(axes, intervals) {
-  if (intervals[0].empty() || intervals[1].empty() || intervals[2].empty()) {
-    console.error('could not determine interval. No objects shown?');
-    return;
-  }
-  var cx = intervals[0].center();
-  var cy = intervals[1].center();
-  var cz = intervals[2].center();
-  var center = [
-    cx * axes[0][0] + cy * axes[1][0] + cz * axes[2][0],
-    cx * axes[0][1] + cy * axes[1][1] + cz * axes[2][1],
-    cx * axes[0][2] + cy * axes[1][2] + cz * axes[2][2]
-  ];
-  var fovY = this._cam.fieldOfViewY();
-  var aspect = this._cam.aspectRatio();
-  var inPlaneX = intervals[0].length() / aspect;
-  var inPlaneY = intervals[1].length();
-  var inPlane = Math.max(inPlaneX, inPlaneY) * 0.5;
-  var distanceToFront =  inPlane / Math.tan(0.5 * fovY);
-  var newZoom =
-      (distanceToFront + 0.5*intervals[2].length());
-  var grace = 0.5;
-  var near = Math.max(distanceToFront - grace, 0.1);
-  var far = 2 * grace + distanceToFront + intervals[2].length();
-  this._cam.setNearFar(near,  far);
-  this.setCamera(this._cam.rotation(), center, newZoom, this._options.animateTime);
-  this.requestRedraw();
-};
-
-// adapt the zoom level to fit the viewport to all visible objects.
-PV.prototype.autoZoom = function() {
-  var axes = this._cam.mainAxes();
-  var intervals = [ new Range(), new Range(), new Range() ];
-  this.forEach(function(obj) {
-    if (!obj.visible()) {
-      return;
-    }
-    obj.updateProjectionIntervals(axes[0], axes[1], axes[2], intervals[0],
-                                  intervals[1], intervals[2]);
-  });
-  this._fitToIntervals(axes, intervals);
-};
-
-PV.prototype.slabInterval = function() {
-};
-
-PV.prototype.autoSlab = function() {
-  var slab = this._options._slabMode.update(this._objects, this._cam);
-  if (slab !== null) {
-    this._cam.setNearFar(slab.near, slab.far);
-  }
-  this.requestRedraw();
-};
-
-// enable disable rock and rolling of camera
-PV.prototype.rockAndRoll = function(enable) {
-  if (enable === true) {
-    this._camAnim.rotation = new RockAndRoll(this._cam.rotation(), 
-                                             [0, 1, 0], 2000);
-    this.requestRedraw();
-  } else if (enable === false) {
-    this._camAnim.rotation = null;
-    this.requestRedraw();
-  }
-  return this._camAnim.rotation !== null;
-};
-
-PV.prototype.slabMode = function(mode, options) {
-  options = options || {};
-  var strategy = slabModeToStrategy(mode, options);
-  var slab = strategy.update(this._objects, this._cam);
-  if (slab !== null) {
-    this._cam.setNearFar(slab.near, slab.far);
-  }
-  this._options.slabMode = strategy;
-  this.requestRedraw();
-};
-
-PV.prototype.computeEntropy = function(rotation, weight) {
-  weight = weight || function(obj) { return 1; };
-  var npix = {};
-  var w = this._entropyBuffer.width();
-  var h = this._entropyBuffer.height();
-  var size = w * h;
-  
-  this.eachVisibleObject(rotation, function(obj) {
-    var index = obj.atom.index();
-    if (npix[index] === undefined) {
-            npix[index] = 1;
-    } else {
-            npix[index]++;
-    }
-  });
-  
-  var visible = Object.keys(npix).length;
-  console.log("number of visible atoms: " + visible);
-  var e = 0;
-  for (var obj in npix) {
-    if (npix.hasOwnProperty(obj)) {
-      var tmp = npix[obj]/size;    // > 0 by construction
-      e += weight(obj) * tmp * Math.log(tmp) / Math.log(2);
-    } 
-  }
-
-//  this._cam.setRotation(currentRotation);
-  return {entropy: -e, visible: visible};
-};
-
-PV.prototype.eachVisibleObject = function(rotation, callback) {
-  var w = this._entropyBuffer.width();
-  var h = this._entropyBuffer.height();
-  var size = w * h;
-  var pixels = new Uint8Array(size * 4);
-  
-  var currentRotation = mat4.clone(this._cam.rotation());
-  rotation = rotation || currentRotation;
-  this._cam.setRotation(rotation);
-  this._entropyBuffer.bind();
-  this._drawPickingScene();
-  
-  this._gl.readPixels(0, 0, this._entropyBuffer.width(), this._entropyBuffer.height(),
-      this._gl.RGBA, this._gl.UNSIGNED_BYTE, pixels);
-  this._entropyBuffer.release();
-  if (pixels.data) {
-    pixels = pixels.data;
-  }
-  
-  for (var p = 0; p < size; ++p) {
-    var i = p * 4;
-    if (pixels[i + 3] === 0) {
-      continue;
-    }
-    var objId = pixels[i] | pixels[i + 1] << 8;
-    var symIndex = pixels[i + 2];
-    
-    var obj = this._objectIdManager.objectForId(objId);
-    if (obj !== undefined) {
-      var x = Math.floor(p % w);
-      var y = Math.floor(p / w);
-      callback(obj, x, y);
-    }
-  }
-  
-  this._cam.setRotation(currentRotation);
-  
-};
-
-PV.prototype.label = function(name, text, pos) {
-  var label = new TextLabel(this._gl, this._textureCanvas, 
-                            this._2dcontext, pos, text);
-  this.add(name, label);
-  return label;
-};
-
-// INTERNAL: draws scene into offscreen pick buffer with the "select"
-// shader.
-PV.prototype._drawPickingScene = function() {
-  this._gl.clearColor(0.0, 0.0, 0.0, 0.0);
-  this._gl.disable(this._gl.BLEND);
-  this._gl.clear(this._gl.COLOR_BUFFER_BIT | this._gl.DEPTH_BUFFER_BIT);
-  this._gl.clearColor(this._options.background[0], this._options.background[1], this._options.background[2], 1.0);
-  this._gl.cullFace(this._gl.FRONT);
-  this._gl.enable(this._gl.CULL_FACE);
-  this._drawWithPass('select');
-};
 
 function PickingResult(obj, symIndex, transform) {
   this._obj = obj;
@@ -1023,122 +111,843 @@ function PickingResult(obj, symIndex, transform) {
   this._transform = transform;
 }
 
-PickingResult.prototype.object = function() { 
-  return this._obj; 
-};
-
-PickingResult.prototype.symIndex = function() { 
-  return this._symIndex; 
-};
-
-PickingResult.prototype.transform = function() { 
-  return this._transform; 
-};
-
-PV.prototype.pick = function(pos) {
-  this._pickBuffer.bind();
-  this._drawPickingScene();
-  var pixels = new Uint8Array(4);
-  this._gl.readPixels(pos.x, this._options.height - pos.y, 1, 1,
-                      this._gl.RGBA, this._gl.UNSIGNED_BYTE, pixels);
-  this._pickBuffer.release();
-  if (pixels.data) {
-    pixels = pixels.data;
+PickingResult.prototype = {
+  object : function() { 
+    return this._obj; 
+  },
+  symIndex : function() { 
+    return this._symIndex; 
+  },
+  transform : function() { 
+    return this._transform; 
   }
-  var pickedIds = {};
-  if (pixels[3] === 0) {
-    return null;
-  }
-  var objId = pixels[0] | pixels[1] << 8;
-  var symIndex = pixels[2];
-
-  var obj = this._objectIdManager.objectForId(objId);
-  if (obj === undefined) {
-    return null;
-  }
-  var transform = null;
-  if (symIndex !== 255) {
-    transform = obj.geom.symWithIndex(symIndex);
-  }
-  return new PickingResult(obj, symIndex < 255 ? symIndex : null,
-                           transform);
 };
 
-PV.prototype.add = function(name, obj) {
-  obj.name(name);
-  this._objects.push(obj);
-  this._objects.sort(function(lhs, rhs) { return lhs.order() - rhs.order(); });
-  this.requestRedraw();
-  return obj;
-};
 
-PV.prototype._globToRegex = function(glob) {
-  var r = glob.replace('.', '\\.').replace('*', '.*');
-  return new RegExp('^' + r + '$');
-};
+function Viewer(domElement, opts) {
+  this._options = this._initOptions(opts, domElement);
 
-PV.prototype.forEach = function() {
-  var callback, pattern = '*';
-  if (arguments.length === 2) {
-    callback = arguments[1];
-    pattern = arguments[0];
+  this._initialized = false;
+  this._objects = [];
+  this._domElement = domElement;
+  this._redrawRequested = false;
+  this._resize = false;
+  this._lastTimestamp = null;
+  this._objectIdManager = new UniqueObjectIdPool();
+  // these two are set to the animation objects when spin/rockAndRoll 
+  // are active
+  this._spin = null;
+  this._rockAndRoll = null;
+
+  this.listenerMap = {};
+
+  this._animControl = new anim.AnimationControl();
+  // NOTE: make sure to only request features supported by all browsers,
+  // not only browsers that support WebGL in this constructor. WebGL
+  // detection only happens in Viewer._initGL. Once this happened, we are
+  // save to use whatever feature pleases us, e.g. typed arrays, 2D 
+  // contexts etc.
+  this._initCanvas();
+
+  this.quality(this._options.quality);
+
+  if (this._options.atomDoubleClicked !== null) {
+    this.addListener('atomDoubleClicked', this._options.atomDoubleClicked);
+  }
+  if (this._options.atomClick !== null) {
+    this.addListener('atomClicked', this._options.atomClick);
+  }
+
+  if (document.readyState === "complete" ||  
+    document.readyState === "loaded" ||  
+      document.readyState === "interactive") {
+    this._initViewer();
   } else {
-    callback = arguments[0];
+    document.addEventListener('DOMContentLoaded', 
+                              utils.bind(this, this._initViewer));
   }
-  var regex = this._globToRegex(pattern);
-  for (var i = 0; i < this._objects.length; ++i) {
-    var obj = this._objects[i];
-    if (regex.test(obj.name())) {
-      callback(obj, i);
+}
+
+function optValue(opts, name, defaultValue) {
+  if (name in opts) {
+    return opts[name];
+  }
+  return defaultValue;
+}
+
+Viewer.prototype = {
+
+  _initOptions : function(opts, domElement) {
+    opts = opts || {};
+    var options = {
+      width : (opts.width || 500),
+      height : (opts.height || 500),
+      animateTime : (opts.animateTime || 0),
+      antialias : opts.antialias,
+      quality : optValue(opts, 'quality', 'low'),
+      style : optValue(opts, 'style', 'hemilight'),
+      background : color.forceRGB(opts.background || 'white'),
+      slabMode : slabModeToStrategy(opts.slabMode),
+      atomClick: opts.atomClicked || opts.atomClick || null,
+      outline : optValue(opts, 'outline', true),
+      // for backwards compatibility
+      atomDoubleClicked : optValue(opts, 'atomDoubleClicked', 
+                                   optValue(opts, 'atomDoubleClick', 'center')),
+      fog : optValue(opts, 'fog', true)
+    };
+    if ('atomDoubleClick' in opts || 'atomClick' in opts) {
+      console.warn('use of atomDoubleClick/atomClick is deprecated. ',
+                   'use atomDoubleClicked/atomClicked instead');
     }
-  }
-};
-
-PV.prototype.get = function(name) {
-  for (var i = 0; i < this._objects.length; ++i) {
-    if (this._objects[i].name() === name) {
-      return this._objects[i];
+    var parentRect = domElement.getBoundingClientRect();
+    if (options.width === 'auto') {
+      options.width = parentRect.width;
     }
-  }
-  console.error('could not find object with name', name);
-  return null;
-};
+    if (options.height === 'auto') {
+      options.height = parentRect.height;
+    }
+    return options;
+  },
 
-PV.prototype.hide = function(glob) {
-  this.forEach(glob, function(obj) { obj.hide(); });
-};
+  // with rendering to avoid flickering.
+  _ensureSize : function() {
+    if (!this._resize) {
+      return;
+    }
+    this._resize = false;
+    this._cam.setViewportSize(this._canvas.viewportWidth(), 
+                              this._canvas.viewportHeight());
+    this._pickBuffer.resize(this._options.width, this._options.height);
+  },
 
-PV.prototype.show = function(glob) {
-  this.forEach(glob, function(obj) { obj.show(); });
-};
+  resize : function(width, height) {
+    if (width === this._options.width && height === this._options.height) {
+      return;
+    }
+    this._canvas.resize(width, height);
+    this._resize = true;
+    this._options.width = width;
+    this._options.height = height;
+    this.requestRedraw();
+  },
 
-// remove all objects whose names match the provided glob pattern from
-// the viewer.
-PV.prototype.rm = function(glob) {
-  var newObjects = [];
-  var regex = this._globToRegex(glob);
-  for (var i = 0; i < this._objects.length; ++i) {
-    var obj = this._objects[i];
-    if (!regex.test(obj.name())) {
-      newObjects.push(obj);
+  fitParent : function() {
+    var parentRect = this._domElement.getBoundingClientRect();
+    this.resize(parentRect.width, parentRect.height);
+  },
+
+  gl : function() {
+    return this._canvas.gl();
+  },
+
+  ok : function() {
+    return this._initialized;
+  },
+
+  options : function(optName, value) {
+    if (value !== undefined) {
+      if (optName === 'fog') {
+        this._cam.fog(value);
+        this._options.fog = value;
+        this.requestRedraw();
+      } else {
+        this._options[optName] = value;
+      }
+      return value;
+    }
+    return this._options[optName];
+  },
+
+  quality : function(qual) {
+    this._options.quality = qual;
+    if (qual === 'high') {
+      this._options.arcDetail = 4;
+      this._options.sphereDetail = 16;
+      this._options.splineDetail = 8;
+      return;
+    }
+    if (qual === 'medium') {
+      this._options.arcDetail = 3;
+      this._options.sphereDetail = 10;
+      this._options.splineDetail = 4;
+      return;
+    }
+    if (qual === 'low') {
+      this._options.arcDetail = 2;
+      this._options.sphereDetail = 8;
+      this._options.splineDetail = 2;
+      return;
+    }
+    console.error('invalid quality argument', qual);
+  },
+
+  // returns the content of the WebGL context as a data URL element which can be
+  // inserted into an img element. This allows users to save a picture to disk
+  imageData : function() {
+    return this._canvas.imageData();
+  },
+
+  _initPickBuffer : function() {
+    var fbOptions = {
+      width : this._options.width, height : this._options.height
+    };
+    this._pickBuffer = new FrameBuffer(this._canvas.gl(), fbOptions);
+  },
+
+  _initViewer : function() {
+    if (!this._canvas.initGL()) {
+      this._domElement.removeChild(this._canvas);
+      this._domElement.innerHTML = WEBGL_NOT_SUPPORTED;
+      this._domElement.style.width = this._options.width + 'px';
+      this._domElement.style.height = this._options.height + 'px';
+      return false;
+    }
+    this._initPickBuffer();
+    this._2dcontext = this._textureCanvas.getContext('2d');
+    this._float32Allocator = new PoolAllocator(Float32Array);
+    this._uint16Allocator = new PoolAllocator(Uint16Array);
+    this._cam = new Cam(this._canvas.gl());
+    this._cam.setUpsamplingFactor(this._canvas.superSamplingFactor());
+    this._cam.fog(this._options.fog);
+    this._cam.setFogColor(this._options.background);
+    this._mouseHandler.setCam(this._cam);
+
+    var c = this._canvas;
+    var p = shouldUseHighPrecision() ? 'highp' : 'mediump';
+    this._shaderCatalog = {
+      hemilight : c.initShader(shaders.HEMILIGHT_VS, shaders.HEMILIGHT_FS, p),
+      outline : c.initShader(shaders.OUTLINE_VS, shaders.OUTLINE_FS, p),
+      lines : c.initShader(shaders.HEMILIGHT_VS, shaders.LINES_FS, p),
+      text : c.initShader(shaders.TEXT_VS, shaders.TEXT_FS, p),
+      select : c.initShader(shaders.SELECT_VS, shaders.SELECT_FS, p)
+    };
+
+    this._boundDraw = utils.bind(this, this._draw);
+
+    this._touchHandler = new TouchHandler(this._canvas.domElement(), 
+                                          this, this._cam);
+
+    if (!this._initialized) {
+      this._initialized = true;
+      this._dispatchEvent({'name':'viewerReadyEvent'},
+                                     'viewerReady',this);
+    }
+    return true;
+  },
+
+  requestRedraw : function() {
+    if (this._redrawRequested) {
+      return;
+    }
+    this._redrawRequested = true;
+    requestAnimFrame(this._boundDraw);
+  },
+
+  _drawWithPass : function(pass) {
+    for (var i = 0, e = this._objects.length; i !== e; ++i) {
+      this._objects[i]
+          .draw(this._cam, this._shaderCatalog, this._options.style, pass);
+    }
+  },
+
+  _initCanvas : function() {
+    var canvasOptions = {
+      antialias : this._options.antialias,
+      height : this._options.height,
+      width : this._options.width,
+      backgroundColor : this._options.background
+    };
+    this._canvas = new canvas.Canvas(this._domElement, canvasOptions);
+    this._textureCanvas = document.createElement('canvas');
+    this._textureCanvas.style.display = 'none';
+    this._domElement.appendChild(this._textureCanvas);
+    this._mouseHandler = new MouseHandler(this._canvas, this, this._cam, 
+                                          this._options.animateTime);
+  },
+
+  setRotation : function(rotation, ms) {
+    ms |= 0;
+    if (ms === 0) {
+      this._cam.setRotation(rotation);
+      this.requestRedraw();
+      return;
+    }
+    // in case it's a mat3, convert to mat4
+    var rotation4;  
+    if (rotation.length === 9) {
+      rotation4 = mat4.create();
+      mat4.fromMat3(rotation4, rotation);
     } else {
-      obj.destroy();
+      rotation4 = mat4.clone(rotation);
     }
-  }
-  this._objects = newObjects;
+    this._animControl.add(anim.rotate(this._cam.rotation(), rotation4, ms));
+    this.requestRedraw();
+  },
+
+  setCamera : function(rotation, center, zoom, ms) {
+    ms |= 0;
+    this.setCenter(center, ms);
+    this.setRotation(rotation, ms);
+    this.setZoom(zoom, ms);
+  },
+  
+  getCamera : function() {
+    return this._cam;
+  },
+
+  // performs interpolation of current camera position
+  _animateCam : function() {
+    var anotherRedraw = this._animControl.run(this._cam);
+    if (anotherRedraw) {
+      this.requestRedraw();
+    }
+  },
+
+  _draw : function() {
+    if (this._canvas === null) {
+      // only happens when viewer has been destroyed
+      return;
+    }
+    this._redrawRequested = false;
+    this._animateCam();
+    this._canvas.bind();
+    // must be called "after" canvas.bind(). we need to some of the properties
+    // calculated in canvas._ensureSize()
+    this._ensureSize();
+    var gl = this._canvas.gl();
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    var newSlab = this._options.slabMode.update(this._objects, this._cam);
+    if (newSlab !== null) {
+      this._cam.setNearFar(newSlab.near, newSlab.far);
+    }
+
+    gl.enable(gl.CULL_FACE);
+    if (this._options.outline) {
+      gl.cullFace(gl.BACK);
+      gl.enable(gl.CULL_FACE);
+      this._drawWithPass('outline');
+    }
+    gl.cullFace(gl.FRONT);
+    gl.enable(gl.BLEND);
+    this._drawWithPass('normal');
+
+
+  },
+
+  setCenter : function(center, ms) {
+    ms |= 0;
+    if (ms === 0) {
+      this._cam.setCenter(center);
+      return;
+    }
+    this._animControl.add(anim.move(this._cam.center(), 
+                                    vec3.clone(center), ms));
+    this.requestRedraw();
+  },
+
+  setZoom : function(zoom, ms) {
+    ms |= 0;
+    if (ms === 0) {
+      this._cam.setZoom(zoom);
+      return;
+    }
+    this._animControl.add(anim.zoom(this._cam.zoom(), zoom, ms));
+    this.requestRedraw();
+  },
+
+  centerOn : function(what, ms) {
+    this.setCenter(what.center(), ms);
+  },
+
+
+  clear : function() {
+    for (var i = 0; i < this._objects.length; ++i) {
+      this._objects[i].destroy();
+    }
+    this._objects = [];
+  },
+
+  addListener : function(eventName, callback) {
+    var callbacks = this.listenerMap[eventName];
+    if (typeof callbacks === 'undefined') {
+      callbacks = [];
+      this.listenerMap[eventName] = callbacks;
+    }
+    if (callback === 'center') {
+      var cb = utils.bind(this._mouseHandler, 
+                          this._mouseHandler._centerOnClicked);
+      callbacks.push(cb);
+    } else {
+      callbacks.push(callback);
+    }
+    // in case viewer is already initialized, fire viewerReady immediately. 
+    // Otherwise, the callback would never be invoked in this case:
+    //  
+    // document.addEventListener('DOMContentLoaded', function() {
+    //    viewer = pv.Viewer(...);
+    //    viewer.on('viewerReady', function(viewer) {
+    //    });
+    // });
+    if (this._initialized && eventName === 'viewerReady') {
+      // don't use dispatch here, we only want this very callback to be 
+      // invoked.
+      callback(this, null);
+    }
+  },
+
+  _dispatchEvent : function(event, newEventName, arg) {
+    var callbacks = this.listenerMap[newEventName];
+    if (callbacks) {
+      callbacks.forEach(function (callback) {
+        callback(arg, event);
+      });
+    }
+  },
+
+  RENDER_MODES : [ 
+    'sline', 'lines', 'trace', 'lineTrace', 'cartoon', 'tube', 'spheres', 
+    'ballsAndSticks',
+  ],
+
+  /// simple dispatcher which allows to render using a certain style.
+  //  will bail out if the render mode does not exist.
+  renderAs : function(name, structure, mode, opts) {
+    var found = false;
+    for (var i = 0; i < this.RENDER_MODES.length; ++i) {
+      if (this.RENDER_MODES[i] === mode) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      console.error('render mode', mode, 'not supported');
+      return;
+    }
+
+    return this[mode](name, structure, opts);
+  },
+
+  _handleStandardMolOptions : function(opts, structure) {
+    opts = this._handleStandardOptions(opts);
+    opts.showRelated = opts.showRelated || 'asym';
+    if (opts.showRelated && opts.showRelated !== 'asym') {
+      if (structure.assembly(opts.showRelated) === null) {
+        console.error('no assembly with name', opts.showRelated,
+                      '. Falling back to asymmetric unit');
+        opts.showRelated = 'asym';
+      }
+    }
+    return opts;
+  },
+
+  _handleStandardOptions : function(opts) {
+    opts = utils.copy(opts);
+    opts.float32Allocator = this._float32Allocator;
+    opts.uint16Allocator = this._uint16Allocator;
+    opts.idPool = this._objectIdManager;
+    return opts;
+  },
+
+
+  lineTrace : function(name, structure, opts) {
+    var options = this._handleStandardMolOptions(opts, structure);
+    options.color = options.color || color.uniform([ 1, 0, 1 ]);
+    options.lineWidth = options.lineWidth || 4.0;
+
+    var obj = render.lineTrace(structure, this._canvas.gl(), options);
+    return this.add(name, obj);
+  },
+
+  spheres : function(name, structure, opts) {
+    var options = this._handleStandardMolOptions(opts, structure);
+    options.color = options.color || color.byElement();
+    options.sphereDetail = this.options('sphereDetail');
+    options.radiusMultiplier = options.radiusMultiplier || 1.0;
+
+    var obj = render.spheres(structure, this._canvas.gl(), options);
+    return this.add(name, obj);
+  },
+
+  sline : function(name, structure, opts) {
+    var options = this._handleStandardMolOptions(opts, structure);
+    options.color = options.color || color.uniform([ 1, 0, 1 ]);
+    options.splineDetail = options.splineDetail || this.options('splineDetail');
+    options.strength = options.strength || 1.0;
+    options.lineWidth = options.lineWidth || 4.0;
+
+    var obj = render.sline(structure, this._canvas.gl(), options);
+    return this.add(name, obj);
+  },
+
+  cartoon : function(name, structure, opts) {
+    var options = this._handleStandardMolOptions(opts, structure);
+    options.color = options.color || color.bySS();
+    options.strength = options.strength || 1.0;
+    options.splineDetail = options.splineDetail || this.options('splineDetail');
+    options.arcDetail = options.arcDetail || this.options('arcDetail');
+    options.radius = options.radius || 0.3;
+    options.forceTube = options.forceTube || false;
+    var obj = render.cartoon(structure, this._canvas.gl(), options);
+    var added = this.add(name, obj);
+    return added;
+  },
+
+
+  surface : function(name, data, opts) {
+    var options = this._handleStandardOptions(opts);
+    var obj = render.surface(data, this._canvas.gl(), options);
+    return this.add(name, obj);
+  },
+
+  // renders the protein using a smoothly interpolated tube, essentially
+  // identical to the cartoon render mode, but without special treatment for
+  // helices and strands.
+  tube : function(name, structure, opts) {
+    opts = opts || {};
+    opts.forceTube = true;
+    return this.cartoon(name, structure, opts);
+  },
+
+  ballsAndSticks : function(name, structure, opts) {
+    var options = this._handleStandardMolOptions(opts, structure);
+
+    options.color = options.color || color.byElement();
+    options.radius = options.radius || 0.3;
+    options.arcDetail = (options.arcDetail || this.options('arcDetail')) * 2;
+    options.sphereDetail = options.sphereDetail || this.options('sphereDetail');
+
+    var obj = render.ballsAndSticks(structure, this._canvas.gl(), options);
+    return this.add(name, obj);
+  },
+
+  lines : function(name, structure, opts) {
+    var options = this._handleStandardMolOptions(opts, structure);
+    options.color = options.color || color.byElement();
+    options.lineWidth = options.lineWidth || 4.0;
+    var obj = render.lines(structure, this._canvas.gl(), options);
+    return this.add(name, obj);
+  },
+
+  trace : function(name, structure, opts) {
+    var options = this._handleStandardMolOptions(opts, structure);
+    options.color = options.color || color.uniform([ 1, 0, 0 ]);
+    options.radius = options.radius || 0.3;
+    options.arcDetail = (options.arcDetail || this.options('arcDetail')) * 2;
+    options.sphereDetail = options.sphereDetail || this.options('sphereDetail');
+
+    var obj = render.trace(structure, this._canvas.gl(), options);
+    return this.add(name, obj);
+  },
+
+  fitTo : function(what) {
+    var axes = this._cam.mainAxes();
+    var intervals = [ new utils.Range(), new utils.Range(), new utils.Range() ];
+    if (what instanceof SceneNode) {
+      what.updateProjectionIntervals(axes[0], axes[1], axes[2], intervals[0],
+                                    intervals[1], intervals[2]);
+    } else if (what.eachAtom !== undefined) {
+      what.eachAtom(function(atom) {
+        var pos = atom.pos();
+        for (var i = 0; i < 3; ++i) {
+          intervals[i].update(vec3.dot(pos, axes[i]));
+        }
+      });
+      for (var i = 0; i < 3; ++i) {
+        intervals[i].extend(1.5);
+      }
+    }
+    this._fitToIntervals(axes, intervals);
+  },
+
+  _fitToIntervals : function(axes, intervals) {
+    if (intervals[0].empty() || intervals[1].empty() || intervals[2].empty()) {
+      console.error('could not determine interval. No objects shown?');
+      return;
+    }
+    var cx = intervals[0].center();
+    var cy = intervals[1].center();
+    var cz = intervals[2].center();
+    var center = [
+      cx * axes[0][0] + cy * axes[1][0] + cz * axes[2][0],
+      cx * axes[0][1] + cy * axes[1][1] + cz * axes[2][1],
+      cx * axes[0][2] + cy * axes[1][2] + cz * axes[2][2]
+    ];
+    var fovY = this._cam.fieldOfViewY();
+    var aspect = this._cam.aspectRatio();
+    var inPlaneX = intervals[0].length() / aspect;
+    var inPlaneY = intervals[1].length();
+    var inPlane = Math.max(inPlaneX, inPlaneY) * 0.5;
+    var distanceToFront =  inPlane / Math.tan(fovY * 0.75);
+    var newZoom =
+        (distanceToFront + 0.5*intervals[2].length());
+    var grace = 0.5;
+    var near = Math.max(distanceToFront - grace, 0.1);
+    var far = 2 * grace + distanceToFront + intervals[2].length();
+    this._cam.setNearFar(near,  far);
+    this.setCamera(this._cam.rotation(), center, newZoom, 
+                   this._options.animateTime);
+    this.requestRedraw();
+
+  },
+
+  eachVisibleObject : function(rotation, callback) {
+    var gl = this._canvas.gl();
+    var w = this._pickBuffer.width();
+    var h = this._pickBuffer.height();
+    var size = w * h;
+    var pixels = new Uint8Array(size * 4);
+    
+    var currentRotation = mat4.clone(this._cam.rotation());
+    rotation = rotation || currentRotation;
+    this._cam.setRotation(rotation);
+    this._pickBuffer.bind();
+    this._drawPickingScene();
+    
+    gl.readPixels(0, 0, this._pickBuffer.width(), 
+        this._pickBuffer.height(),
+        gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    this._pickBuffer.release();
+    if (pixels.data) {
+      pixels = pixels.data;
+    }
+    
+    for (var p = 0; p < size; ++p) {
+      var i = p * 4;
+      if (pixels[i + 3] === 0) {
+        continue;
+      }
+      var objId = pixels[i] | pixels[i + 1] << 8;
+      
+      var obj = this._objectIdManager.objectForId(objId);
+      if (obj !== undefined) {
+        var x = Math.floor(p % w);
+        var y = Math.floor(p / w);
+        callback(obj, x, y);
+      }
+    }
+    
+    this._cam.setRotation(currentRotation);
+    
+  },
+
+  // adapt the zoom level to fit the viewport to all visible objects.
+  autoZoom : function() {
+    var axes = this._cam.mainAxes();
+    var intervals = [ new utils.Range(), new utils.Range(), new utils.Range() ];
+    this.forEach(function(obj) {
+      if (!obj.visible()) {
+        return;
+      }
+      obj.updateProjectionIntervals(axes[0], axes[1], axes[2], intervals[0],
+                                    intervals[1], intervals[2]);
+    });
+    this._fitToIntervals(axes, intervals);
+  },
+
+  slabInterval : function() {
+  },
+
+  autoSlab : function() {
+    var slab = this._options._slabMode.update(this._objects, this._cam);
+    if (slab !== null) {
+      this._cam.setNearFar(slab.near, slab.far);
+    }
+    this.requestRedraw();
+  },
+
+  // enable disable rock and rolling of camera
+  rockAndRoll : function(enable) {
+    if (enable === undefined) {
+      return this._rockAndRoll !== null;
+    }
+    if (!!enable) {
+      this._rockAndRoll = anim.rockAndRoll();
+      this._animControl.add(this._rockAndRoll);
+      this.requestRedraw();
+      return true;
+    } 
+    this._animControl.remove(this._rockAndRoll);
+    this._rockAndRoll = null;
+    this.requestRedraw();
+    return false;
+  },
+
+  spin : function(speed, axis) {
+    if (speed === undefined) {
+      return this._spin !== null;
+    }
+    if (speed === false) {
+      this._animControl.remove(this._spin);
+      this._spin = null;
+      this.requestRedraw();
+      return false;
+    } 
+    if (speed === true) {
+      speed = Math.PI/8;
+    }
+    axis = axis || [0, 1, 0];
+    this._spin = anim.spin(axis, speed);
+    this._animControl.add(this._spin);
+    this.requestRedraw();
+    return true;
+  },
+
+  slabMode : function(mode, options) {
+    options = options || {};
+    var strategy = slabModeToStrategy(mode, options);
+    var slab = strategy.update(this._objects, this._cam);
+    if (slab !== null) {
+      this._cam.setNearFar(slab.near, slab.far);
+    }
+    this._options.slabMode = strategy;
+    this.requestRedraw();
+  },
+
+  label : function(name, text, pos, options) {
+    var label = new TextLabel(this._canvas.gl(), this._textureCanvas, 
+                              this._2dcontext, pos, text, options);
+    this.add(name, label);
+    return label;
+  },
+  customMesh : function(name, opts) {
+    var options = this._handleStandardOptions(opts);
+    
+    var mesh = new CustomMesh(name, this._canvas.gl(), 
+                              options.float32Allocator, 
+                              options.uint16Allocator);
+    this.add(name, mesh);
+    return mesh;
+  },
+
+  // INTERNAL: draws scene into offscreen pick buffer with the "select"
+  // shader.
+  _drawPickingScene : function() {
+    var gl = this._canvas.gl();
+    gl.clearColor(0.0, 0.0, 0.0, 0.0);
+    gl.disable(gl.BLEND);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.clearColor(this._options.background[0], this._options.background[1], 
+                  this._options.background[2], 1.0);
+    gl.cullFace(gl.FRONT);
+    gl.enable(gl.CULL_FACE);
+    this._drawWithPass('select');
+  },
+
+  pick : function(pos) {
+    this._pickBuffer.bind();
+    this._drawPickingScene();
+    var pixels = new Uint8Array(4);
+    var gl = this._canvas.gl();
+    gl.readPixels(pos.x, this._options.height - pos.y, 1, 1,
+                  gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    this._pickBuffer.release();
+    if (pixels.data) {
+      pixels = pixels.data;
+    }
+    if (pixels[3] === 0) {
+      return null;
+    }
+    var objId = pixels[0] | pixels[1] << 8;
+    var symIndex = pixels[2];
+
+    var obj = this._objectIdManager.objectForId(objId);
+    if (obj === undefined) {
+      return null;
+    }
+    var transform = null;
+    if (symIndex !== 255) {
+      transform = obj.geom.symWithIndex(symIndex);
+    }
+    return new PickingResult(obj, symIndex < 255 ? symIndex : null,
+                            transform);
+  },
+
+  add : function(name, obj) {
+    obj.name(name);
+    this._objects.push(obj);
+    this._objects.sort(function(lhs, rhs) { 
+      return lhs.order() - rhs.order(); 
+    });
+    this.requestRedraw();
+    return obj;
+  },
+
+  _globToRegex : function(glob) {
+    var r = glob.replace('.', '\\.').replace('*', '.*');
+    return new RegExp('^' + r + '$');
+  },
+
+  forEach : function() {
+    var callback, pattern = '*';
+    if (arguments.length === 2) {
+      callback = arguments[1];
+      pattern = arguments[0];
+    } else {
+      callback = arguments[0];
+    }
+    var regex = this._globToRegex(pattern);
+    for (var i = 0; i < this._objects.length; ++i) {
+      var obj = this._objects[i];
+      if (regex.test(obj.name())) {
+        callback(obj, i);
+      }
+    }
+  },
+
+  get : function(name) {
+    for (var i = 0; i < this._objects.length; ++i) {
+      if (this._objects[i].name() === name) {
+        return this._objects[i];
+      }
+    }
+    console.error('could not find object with name', name);
+    return null;
+  },
+
+  hide : function(glob) {
+    this.forEach(glob, function(obj) { obj.hide(); });
+  },
+
+  show : function(glob) {
+    this.forEach(glob, function(obj) { obj.show(); });
+  },
+
+  // remove all objects whose names match the provided glob pattern from
+  // the viewer.
+  rm : function(glob) {
+    var newObjects = [];
+    var regex = this._globToRegex(glob);
+    for (var i = 0; i < this._objects.length; ++i) {
+      var obj = this._objects[i];
+      if (!regex.test(obj.name())) {
+        newObjects.push(obj);
+      } else {
+        obj.destroy();
+      }
+    }
+    this._objects = newObjects;
+  },
+  all : function() {
+    return this._objects;
+  },
+  isWebGLSupported : function() {
+    return this._canvas.isWebGLSupported();
+  },
+  destroy : function() {
+    this.clear();
+    this._canvas.destroy();
+    this._canvas = null;
+  },
 };
 
-PV.prototype.all = function() {
-  return this._objects;
+Viewer.prototype.on = Viewer.prototype.addListener;
+
+return { 
+  Viewer : function(elem, options) { 
+    return new Viewer(elem, options); 
+  },
+  isWebGLSupported : canvas.isWebGLSupported
 };
 
-
-return { Viewer : function(elem, options) { return new PV(elem, options);
-}
-}
-;
-})();
-
-if(typeof(exports) !== 'undefined') {
-    module.exports = pv;
-}
+});

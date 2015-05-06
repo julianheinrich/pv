@@ -17,7 +17,7 @@ Clone this repository
 git clone https://github.com/biasmv/pv.git
 ```
 
-Change to the pv directory and serve the files using the serve command. It's a small wrapper around the SimpleHTTPServer module which also sets the Access-Control-Allow-Origin header to allow requests to pdb.org. This is required for the demo to work properly.
+Change to the pv directory and serve the files using the serve script in the source directory. This will start a simple static-file server using Python's SimpleHTTPServer module.
 
 ```bash
 cd pv
@@ -64,10 +64,24 @@ Documentation for pv is available [here](http://pv.readthedocs.org).
 Changelog
 ----------------------------------------
 
-### New Since latest Release
+### New Since Latest Release
+
+- Added Viewer.spin command to spin the camera around an axis
+
+### New in Version 1.4.0
 
 - Basic support RNA/DNA rendering for all render modes
 - Multi-touch support for iOS and Android (with contributions by @kozmad, @lordvlad)
+- improved visual clarity of text labels
+- use correct line width when manual anti-aliasing is enabled.
+- text labels can now be styled (color, font-family, font-weight, size)
+- reduced file size of minified JavaScript file by a little more than 10%
+- ability to add geometric shapes to the 3D scene through customMesh
+- ability to specify custom color palettes (@andreasprlic)
+- viewerReady event (@andreasprlic)
+- PV can optionally be used as an AMD module without polluting the global namespace
+- added more unit and functional tests. The tests reach a coverage of 80% of the total number of exectuable lines of code.
+- support for loading small molecules from SDF files
 
 ### New in Version 1.3.1
 

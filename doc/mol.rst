@@ -1,24 +1,24 @@
 Molecular Structures
 =========================================================================================
 
-Molecular structures are represented by the :class:`mol.Mol` class. While nothing restricts the type of molecules stored in an instance of :class:`mol.Mol`, the data structure is optimized for biological macromolecules and follows the same hierarchical organizing principle. The lowest level of the hierarchy is formed by chains. The chains consist of one or more residues. Depending on the type of residues the chain holds, the chain is interpreted as a linear chain of residues, e.g. a polyeptide, or polynucleotide, or a collection of an unordered group of molecules such as water. In the former case, residues are ordered from N to C terminus, whereas in the latter the ordering of the molecules does not carry any meaning. Each residue consists of one or more atoms.
+Molecular structures are represented by the :class:`pv.mol.Mol` class. While nothing restricts the type of molecules stored in an instance of :class:`pv.mol.Mol`, the data structure is optimized for biological macromolecules and follows the same hierarchical organizing principle. The lowest level of the hierarchy is formed by chains. The chains consist of one or more residues. Depending on the type of residues the chain holds, the chain is interpreted as a linear chain of residues, e.g. a polyeptide, or polynucleotide, or a collection of an unordered group of molecules such as water. In the former case, residues are ordered from N to C terminus, whereas in the latter the ordering of the molecules does not carry any meaning. Each residue consists of one or more atoms.
 
-Tightly coupled to :class:`mol.Mol` is the concept of structural subset, a :class:`mol.MolView`. MolViews have the exact same interface than :class:`mol.Mol` and in most cases behave exactly the same. Thus, from a user perspective it mostly does not matter whether one is working with a complete structure or a subset thereof. In the following, the APIs for the :class:`mol.Mol` and :class:`mol.MolView` classes are described together. Where differences exist, they are documented.
+Tightly coupled to :class:`pv.mol.Mol` is the concept of structural subset, a :class:`pv.mol.MolView`. MolViews have the exact same interface than :class:`pv.mol.Mol` and in most cases behave exactly the same. Thus, from a user perspective it mostly does not matter whether one is working with a complete structure or a subset thereof. In the following, the APIs for the :class:`pv.mol.Mol` and :class:`pv.mol.MolView` classes are described together. Where differences exist, they are documented.
 
 
 Obtaining and Creating Molecular Structures
 -----------------------------------------------------------------------------------------
 
-The most common way to construct :class:`molecules <mol.Mol>` is through one of the io functions. For example, to import the structure from a PDB file, use :func:`io.pdb`. The whole structure, or a subset thereof can then be displayed on the screen by using one of the :ref:`rendering functions<pv.viewer.rendering>`.
+The most common way to construct :class:`molecules <pv.mol.Mol>` is through one of the io functions. For example, to import the structure from a PDB file, use :func:`pv.io.pdb`. The whole structure, or a subset thereof can then be displayed on the screen by using one of the :ref:`rendering functions<pv.viewer.rendering>`.
 
-The following code example fetches a PDB file from PDB.org imports it and displays the chain with name 'A' on the screen. For more details on how to create subsets, see :ref:`mol.creating-views`.
+The following code example fetches a PDB file from PDB.org imports it and displays the chain with name 'A' on the screen. For more details on how to create subsets, see :ref:`pv.mol.creating-views`.
 
 .. code-block:: javascript
 
   $.ajax('http://pdb.org/pdb/files/'+pdbId+'.pdb')
   .done(function(data) {
       // data contains the contents of the PDB file in text form
-      var structure = io.pdb(data);
+      var structure = pv.io.pdb(data);
       var firstChain = structure.select({chain: 'A'});
       viewer.cartoon('firstChain', firstChain);
   });
@@ -27,7 +27,7 @@ Alternatively, you can create the structure *by hand*. That's typically not requ
 
 .. code-block:: javascript
 
-  var structure = new mol.Mol();
+  var structure = new pv.mol.Mol();
   var chain = structure.addChain('A');
   for (var i = 0; i < 10; ++i) {
     var residue = chain.addResidue('ABC', i);
@@ -35,35 +35,62 @@ Alternatively, you can create the structure *by hand*. That's typically not requ
   }
 
 
-.. _mol.creating-views:
+.. _pv.mol.creating-views:
 
 Creating Subsets of a Molecular Structure
 -----------------------------------------------------------------------------------------
 
 It is quite common to only apply operations (coloring, displaying) to subset of a molecular structure. These subsets are modelled as *views* and can be created in different ways.
 
- - The most convenient way to create views is by using :func:`mol.Mol.select`. Select accepts a set of predicates and returns a view containing only chains, residues and atoms that match the predicates. 
- - Alternatively for more complex selections, one can use :func:`mol.Mol.residueSelect`, which evaluates a function on each residue and includes residues for which the function returns true.
+ - The most convenient way to create views is by using :func:`pv.mol.Mol.select`. Select accepts a set of predicates and returns a view containing only chains, residues and atoms that match the predicates. 
+ - Alternatively for more complex selections, one can use :func:`pv.mol.Mol.residueSelect`, or :func:`pv.mol.Mol.atomSelect`, which evaluates a function on each residue/atom and includes residues/atoms for which the function returns true.
 
  - Selection by distance allows to select parts of a molecule that are within a certain radius of  another molecule.
- - Views can be assembled manually through :func:`mol.MolView.addChain`, :func:`mol.ChainView.addResidue`, :func:`mol.ResidueView.addAtom`. This is the most flexible but also the most verbose way of creating views.
+ - Views can be assembled manually through :func:`pv.mol.MolView.addChain`, :func:`pv.mol.ChainView.addResidue`, :func:`pv.mol.ResidueView.addAtom`. This is the most flexible but also the most verbose way of creating views.
 
 
-
-
-The Mol (and MolView) API
+Loading Molecular Structures
 -----------------------------------------------------------------------------------------
 
-.. class:: mol.Mol()
+The following functions import structures from different data formats. 
 
-  Represents a complete molecular structure which may consist of multiple polypeptide chains, solvent and other molecules.
+.. function:: pv.io.pdb(pdbData)
 
-.. class:: mol.MolView()
+  Loads a structure from the *pdbData* string and returns it. In case multiple models are present in the file (as designated by MODEL/ENDMDL), only the first is read. The following record types are handled:
 
-  Represents a subset of a molecular structure, e.g. the result of a selection operation. Except for a few differences, it's API is identical to :class:`mol.Mol`.
+   * *ATOM/HETATM* for the actual coordinate data. Alternative atom locations other than those labelled as *A* are discarded.
+   * *HELIX/STRAND* for assignment of secondary structure information.
+   * *REMARK 350* for handling of biological assemblies
 
-.. function:: mol.Mol.eachAtom(callback)
-              mol.MolView.eachAtom(callback)
+.. function:: pv.io.sdf(sdfData)
+
+  Load small molecules from *sdfData* and returns them. In case multiple molecules are present, these molecules are returned as separate chains of the same :class:`pv.mol.Mol` instance.
+
+  Currently, only a minimal set of information is extracted from SDF files:
+
+  * atom position, element, atom name (set to the element)
+  * connectivity information
+  * the chain name is set to the structure title
+
+.. function:: pv.io.fetchPdb(url, callback)
+              pv.io.fetchSdf(url, callback)
+
+  Performs an adjax request the provided URL and loads the data as a structure using either :func:`pv.io.pdb`, or :func:`pv.io.sdf`. Upon success, the callback is invoked with the loaded structure as the only argument.
+
+
+Mol (and MolView)
+-----------------------------------------------------------------------------------------
+
+.. class:: pv.mol.Mol()
+
+  Represents a complete molecular structure which may consist of multiple polypeptide chains, solvent and other molecules.  Instances of mol are typically created through one of the io functions, e.g. :func:`pv.io.pdb`, or :func:`pv.io.sdf`.
+
+.. class:: pv.mol.MolView()
+
+  Represents a subset of a molecular structure, e.g. the result of a selection operation. Except for a few differences, it's API is identical to :class:`pv.mol.Mol`.
+
+.. function:: pv.mol.Mol.eachAtom(callback)
+              pv.mol.MolView.eachAtom(callback)
 
   Invoke callback for each atom in the structure. For example, the following code calculates the number of carbon alpha atoms.
 
@@ -79,35 +106,35 @@ The Mol (and MolView) API
     });
     console.log('number of carbon alpha atoms', carbonAlphaCount);
 
-.. function:: mol.Mol.eachResidue(callback)
-              mol.MolView.eachResidue(callback)
+.. function:: pv.mol.Mol.eachResidue(callback)
+              pv.mol.MolView.eachResidue(callback)
 
   Invoke callback for each residue in the structure or view.
 
-.. function:: mol.Mol.full()
-              mol.MolView.full()
+.. function:: pv.mol.Mol.full()
+              pv.mol.MolView.full()
 
-  Convenience function that always links back to :class:`mol.Mol`. For instances of :class:`mol.Mol`, returns this directly, for instances of :class:`mol.MolView` returns a reference to the :class:`mol.Mol` the subset was derived from. 
+  Convenience function that always links back to :class:`pv.mol.Mol`. For instances of :class:`pv.mol.Mol`, returns this directly, for instances of :class:`pv.mol.MolView` returns a reference to the :class:`pv.mol.Mol` the subset was derived from. 
 
-.. function:: mol.Mol.atomCount()
-              mol.MolView.atomCount()
+.. function:: pv.mol.Mol.atomCount()
+              pv.mol.MolView.atomCount()
 
   Returns the number of atoms in the structure, subset of structure.
 
-.. function:: mol.Mol.center()
-              mol.MolView.center()
+.. function:: pv.mol.Mol.center()
+              pv.mol.MolView.center()
 
   Returns the geometric center of all atoms in the structure.
 
-.. function:: mol.Mol.chains()
-              mol.MolView.chains()
+.. function:: pv.mol.Mol.chains()
+              pv.mol.MolView.chains()
 
-  Returns an array of all chains in the structure. For :class:`mol.Mol`, this returns a list of :class:`mol.Chain` instances, for :class:`mol.MolView` a list of :class:`mol.ChainView` instances.
+  Returns an array of all chains in the structure. For :class:`pv.mol.Mol`, this returns a list of :class:`pv.mol.Chain` instances, for :class:`pv.mol.MolView` a list of :class:`pv.mol.ChainView` instances.
 
-.. function:: mol.Mol.select(what)
-              mol.MolView.select(what)
+.. function:: pv.mol.Mol.select(what)
+              pv.mol.MolView.select(what)
 
-  Returns a :class:`mol.MolView` containing a filtered subset of chains, residues and atoms. *what* determines how the filtered subset is created. It can be set to a predefined string for commonly required selections, or be set to a dictionary of predicates that have to match for a chain, residue or atom to be included in the result. Currently, the following predefined selections are accepted:
+  Returns a :class:`pv.mol.MolView` containing a filtered subset of chains, residues and atoms. *what* determines how the filtered subset is created. It can be set to a predefined string for commonly required selections, or be set to a dictionary of predicates that have to match for a chain, residue or atom to be included in the result. Currently, the following predefined selections are accepted:
 
   * *water*: selects residues with names HOH and DOD (deuteriated water).
   * *protein*: returns all amino-acids found in the structure. Note that this might return amino acid ligands as well.
@@ -121,13 +148,17 @@ The Mol (and MolView) API
 
   **Available Residue Predicates:**
 
-  * *rname*: A residue is included iff the residue name it is equal to *rname*/*chain*. To match against multiple residue names, use the plural form rnames.
-  * *rindexRange* include residues at position in a chain in the half-closed interval *rindexRange[0]* and *rindexRange[1]*. The residue at *rindexRange[1]* is not included. Indices are zero-based. 
+  * *rname*: A residue is included iff the residue name it is equal to *rname*. To match against multiple residue names, use the plural form rnames.
+  * *rindexRange* include residues at position in a chain in the interval *rindexRange[0]* and *rindexRange[1]*. The residue at *rindexRange[1]* is also included. Indices are zero-based. 
   * *rindices* includes residues at certain positions in the chain. Indices are zero based.
+
+  * *rnum* includes residues having the provided residue number value. Only the numeric part is honored, insertion codes are ignored. To match against multiple residue numbers, use the plural form *rnums*.
+  * *rnumRange* include residues with numbers between *rnumRange[0]* and *rnumRange[1]*. The residue with number *rnumRange[1]*  is also included.
 
   **Available Atom Predicates:**
 
-  * *aname* An atom is included iff the atom name it is equal to *aname*. To match against multiple atom names, use the plural forms cnames/chains.
+  * *aname* An atom is included iff the atom name it is equal to *aname*. To match against multiple atom names, use the plural form anames.
+  * *hetatm* An atom is included iff the atom hetatm flag matches the provided value.
 
   **Examples:**
 
@@ -140,17 +171,17 @@ The Mol (and MolView) API
     // included in the result.
     var chainACarbonAlpha = myStructure.select({cname : 'A', aname : 'CA'});
 
-  When none of the above selection mechanisms is flexible enough, consider using :func:`mol.Mol.residueSelect`.
+  When none of the above selection mechanisms is flexible enough, consider using :func:`pv.mol.Mol.residueSelect`, or :func:`pv.mol.Mol.atomSelect`.
 
 
-  :returns: :class:`mol.MolView` containing the subset of chains, residues and atoms.
+  :returns: :class:`pv.mol.MolView` containing the subset of chains, residues and atoms.
 
-.. function:: mol.Mol.selectWithin(structure[, options])
-              mol.MolView.selectWithin(structure[, options])
+.. function:: pv.mol.Mol.selectWithin(structure[, options])
+              pv.mol.MolView.selectWithin(structure[, options])
 
-  Returns an instance of :class:`mol.MolView` containing chains, residues and atoms which are in spatial proximity to *structure*. 
+  Returns an instance of :class:`pv.mol.MolView` containing chains, residues and atoms which are in spatial proximity to *structure*. 
 
-  :param structure: :class:`mol.Mol` or :class:`mol.MolView` to which proximity is required.
+  :param structure: :class:`pv.mol.Mol` or :class:`pv.mol.MolView` to which proximity is required.
   :param options: An optional dictionary of options to control the behavior of selectWithin (see below)
 
   **Options**
@@ -160,159 +191,198 @@ The Mol (and MolView) API
   - **matchResidues** whether to use residue matching mode. When set to true, all atom of a residue are included in result as soon as one atom is in proximity.
 
 
-.. function:: mol.Mol.residueSelect(predicate)
-              mol.MolView.residueSelect(predicate)
+.. function:: pv.mol.Mol.residueSelect(predicate)
+              pv.mol.MolView.residueSelect(predicate)
 
-  Returns an instance of :class:`mol.MolView` only containing residues which match the predicate function. The predicate must be a function which accepts a residue as its only argument and return true for residues to be included. For all other residues, the predicate must return false. All atoms of matching residues will be included in the view.
+  Returns an instance of :class:`pv.mol.MolView` only containing residues which match the predicate function. The predicate must be a function which accepts a residue as its only argument and return true for residues to be included. For all other residues, the predicate must return false. All atoms of matching residues will be included in the view.
 
   **Example:**
 
   .. code-block:: javascript
 
-    var oddResidues = structure.residueSelect(function(res) { return res.index() % 2; });
+    var oddResidues = structure.residueSelect(function(res) { 
+      return res.index() % 2; 
+    });
 
-.. function:: mol.Mol.addChain(name)
+.. function:: pv.mol.Mol.atomSelect(predicate)
+              pv.mol.MolView.atomSelect(predicate)
+
+  Returns an instance of :class:`pv.mol.MolView` only containing atoms which match the predicate function. The predicate must be a function which accepts an atom as its only argument and return true for atoms to be included. For all other atoms, the predicate must return false. 
+
+  **Example:**
+
+  .. code-block:: javascript
+
+    var carbonAlphas = structure.atomSelect(function(atom) { 
+      return res.name() === 'CA'; 
+    });
+
+.. function:: pv.mol.Mol.addChain(name)
 
   Adds a new chain with the given name to the  structure
 
   :param name: the name of the chain
 
-  :returns: the newly created :class:`mol.Chain` instance
+  :returns: the newly created :class:`pv.mol.Chain` instance
 
-.. function:: mol.MolView.addChain(residue, includeAllResiduesAndAtoms)
+.. function:: pv.mol.MolView.addChain(residue, includeAllResiduesAndAtoms)
 
   Adds the given chain to the structure view
 
-  :param chain: the chain to add. Must either be a :class:`mol.ChainView`, or :class:`mol.Chain` instance.
-  :param includeAllResiduesAndAtoms: when true, residues and atoms contained in the chain are directly added as new :class:`mol.ResidueView`, :class:`mol.AtomView` instances. When set to false (the default), the new chain view is created with an empty list of residues.
+  :param chain: the chain to add. Must either be a :class:`pv.mol.ChainView`, or :class:`pv.mol.Chain` instance.
+  :param includeAllResiduesAndAtoms: when true, residues and atoms contained in the chain are directly added as new :class:`pv.mol.ResidueView`, :class:`pv.mol.AtomView` instances. When set to false (the default), the new chain view is created with an empty list of residues.
 
-  :returns: the newly created :class:`mol.ChainView` instance
+  :returns: the newly created :class:`pv.mol.ChainView` instance
 
 
-.. function:: mol.Mol.chain(name)
-.. function:: mol.MolView.chain(name)
+.. function:: pv.mol.Mol.chain(name)
+              pv.mol.MolView.chain(name)
 
-  Alias for :func:`mol.Mol.chainByName`
+  Alias for :func:`pv.mol.Mol.chainByName`
 
-.. function:: mol.Mol.chainByName(name)
-.. function:: mol.MolView.chainByName(name)
+.. function:: pv.mol.Mol.chainByName(name)
+              pv.mol.MolView.chainByName(name)
 
   Returns the chain with the given name. If no such chain exists, null is returned.
 
-.. function:: mol.Mol.chainsByName(names)
-.. function:: mol.MolView.chainsByName(names)
+.. function:: pv.mol.Mol.chainsByName(names)
+              pv.mol.MolView.chainsByName(names)
 
   Returns the list of chains matching the specified names. In case a chain does not exist (or is not part of the view), the chain name is ignored, as if it were not specified.
 
-.. function:: io.pdb(pdbData)
 
-  Loads a structure from the *pdbData* string and returns it. In case multiple models are present in the file (as designated by MODEL/ENDMDL), only the first is read. The following record types are handled:
-
-   * *ATOM/HETATM* for the actual coordinate data. Alternative atom locations other than those labelled as *A* are discarded.
-   * *HELIX/STRAND* for assignment of secondary structure information.
-   * *REMARK 350* for handling of biological assemblies
-
-The Chain (and ChainView) API
+Chain (and ChainView)
 -----------------------------------------------------------------------------------------
 
-.. class:: mol.Chain
+.. class:: pv.mol.Chain
+
+  Represents either a linear chain of molecules, e.g. as in peptides or an unordered collection of molecules such as water. New instances are created by calling :func:`pv.mol.Mol.addChain`.
 
 
-.. class:: mol.ChainView
+.. class:: pv.mol.ChainView
 
-.. function:: mol.Chain.name()
-              mol.ChainView.name()
+  Represents a subset of a chain, that is a selected subset of residues and atoms. New instances are created and added to an existing :class:`pv.mol.MolView` instance by calling :func:`pv.mol.MolView.addChain`.
+
+.. function:: pv.mol.Chain.name()
+              pv.mol.ChainView.name()
 
   The name of the chain. For chains loaded from PDB, the chain names are alpha-numeric and no longer than one character.
 
-.. function:: mol.Chain.residues()
-              mol.ChainView.residues()
+.. function:: pv.mol.Chain.residues()
+              pv.mol.ChainView.residues()
 
-  Returns the list of residues contained in this chain. For :class:`mol.Chain` instances, returns an array of :class:`mol.Residue`, for :class:`mol.ChainView` instances returns an array of :class:`mol.ResidueView` instances.
+  Returns the list of residues contained in this chain. For :class:`pv.mol.Chain` instances, returns an array of :class:`pv.mol.Residue`, for :class:`pv.mol.ChainView` instances returns an array of :class:`pv.mol.ResidueView` instances.
 
-.. function:: mol.Chain.eachBackboneTrace(callback)
-              mol.ChainView.eachBackboneTrace(callback)
+.. function:: pv.mol.Chain.eachBackboneTrace(callback)
+              pv.mol.ChainView.eachBackboneTrace(callback)
 
   Invokes *callback* for each stretch of consecutive amino acids found in the chain. Each trace contains at least two amino acids. Two amino acids are consecutive when their backbone is complete and the carboxy C-atom and the nitrogen N could potentially form a peptide bond.
 
   :param callback: a function which accepts the array of trace residues as an argument
 
-.. function:: mol.Chain.backboneTraces()
-              mol.ChainView.backboneTraces()
+.. function:: pv.mol.Chain.backboneTraces()
+              pv.mol.ChainView.backboneTraces()
 
-  Convenience function which returns all backbone traces of the chain as a list. See :func:`mol.Chain.eachBackboneTrace`.
+  Convenience function which returns all backbone traces of the chain as a list. See :func:`pv.mol.Chain.eachBackboneTrace`.
 
-.. function:: mol.Chain.addResidue(name, number)
+.. function:: pv.mol.Chain.addResidue(name, number[, insCode])
 
   Appends a new residue at the end of the chain
 
   :param name: the name of the residue, for example 'GLY' for glycine.
-  :param number: the residue number
+  :param number: the numeric part of the residue number
+  :param insCode: the insertion code character. Defaults to '\\0'.
 
-  :returns: the newly created :class:`mol.Residue` instance
+  :returns: the newly created :class:`pv.mol.Residue` instance
 
-.. function:: mol.ChainView.addResidue(residue, includeAllAtoms)
+
+.. function:: pv.mol.Chain.residueByRnum(rnum)
+              pv.mol.ChainView.residueByRnum(rnum)
+
+  Returns the first residue in the chain with the given numeric residue number. Insertion codes are ignored. In case no residue has the given residue number, null is returned. This function internally uses a binary search when the residue numbers of the chain are ordered, and falls back to a linear search in case the residue numbers are unordered.
+
+  :returns: if found, the residue instance, and null if no such residue exists.
+
+
+.. function:: pv.mol.Chain.residuesInRnumRange(start, end)
+              pv.mol.ChainView.residuesInRnumRange(start, end)
+
+  Returns the list of residues that have residue number in the range *start*, *end*. Insertion codes are ignored.  This function internally uses a binary search to quickly determine the residues included in the range when the residue numbers in the chain are ordered, and falls back to a linear search in case the residue numbers are unordered.
+  
+  **Example:**
+
+  .. code-block:: javascript
+
+    // will contain residues with numbers from 5 to 10.
+    var residues = structure.chain('A').residuesInRnumRange(5, 10);
+
+
+.. function:: pv.mol.ChainView.addResidue(residue, includeAllAtoms)
 
   Adds the given residue to the chain view
 
-  :param residue: the residue to add. Must either be a :class:`mol.ResidueView`, or :class:`mol.Residue` instance.
+  :param residue: the residue to add. Must either be a :class:`pv.mol.ResidueView`, or :class:`pv.mol.Residue` instance.
   :param includeAllAtoms: when true, all atoms of the residue are directly added as new AtomViews to the residue. When set to false (the default), a new residue view is created with an empty list of atoms.
 
-  :returns: the newly created :class:`mol.ResidueView` instance
+  :returns: the newly created :class:`pv.mol.ResidueView` instance
 
 
 
-The Residue (and ResidueView) API
+Residue (and ResidueView)
 -----------------------------------------------------------------------------------------
 
 
-.. class:: mol.Residue
+.. class:: pv.mol.Residue
+
+  Represents a residue, e.g. a logical unit of atoms, such as an amino acid, a nucleotide, or a sugar. New residues are created and added to an existing :class:`pv.mol.Chain` instance by calling :func:`pv.mol.Chain.addResidue`.
 
 
-.. class:: mol.ResidueView
+.. class:: pv.mol.ResidueView
+
+  Represents a subset of a residue, e.g. a subset of the atoms the residue contains. New residue views are created and added to an existing :class:`pv.mol.ChainView` by calling :func:`pv.mol.ChainView.addResidue`.
 
 
-.. function:: mol.Residue.name()
-              mol.ResidueView.name()
+.. function:: pv.mol.Residue.name()
+              pv.mol.ResidueView.name()
 
   Returns the three-letter-code of the residue, e.g. GLY for glycine. 
 
 
-.. function:: mol.Residue.isWater()
-              mol.ResidueView.isWater()
+.. function:: pv.mol.Residue.isWater()
+              pv.mol.ResidueView.isWater()
 
   Returns true when the residue is a water molecule. Water molecules are recognized by having a one-letter-code of HOH or DOD (deuteriated water).
 
 
-.. function:: mol.Residue.isAminoAcid()
-              mol.ResidueView.isAminoAcid()
+.. function:: pv.mol.Residue.isAminoAcid()
+              pv.mol.ResidueView.isAminoAcid()
 
   Returns true when the residue is an amino acid. Residues which have the four backbone atoms N, CA, C, and O are considered as amino acids, all others not. 
 
-.. function:: mol.Residue.num()
-              mol.ResidueView.num()
+.. function:: pv.mol.Residue.num()
+              pv.mol.ResidueView.num()
 
   Returns the numeric part of the residue number, ignoring insertion code.
 
-.. function:: mol.Residue.index()
-              mol.ResidueView.index()
+.. function:: pv.mol.Residue.index()
+              pv.mol.ResidueView.index()
 
   Returns the index of the residue in the chain.
 
-.. function:: mol.Residue.atoms()
-              mol.ResidueView.atoms()
+.. function:: pv.mol.Residue.atoms()
+              pv.mol.ResidueView.atoms()
 
-  Returns the list of atoms of this residue. For :class:`mol.Residue`, returns an array of :class:`mol.Atom` instances, for :class:`mol.ResidueView`, resturns an array of :class:`mol.AtomView` instances.
+  Returns the list of atoms of this residue. For :class:`pv.mol.Residue`, returns an array of :class:`pv.mol.Atom` instances, for :class:`pv.mol.ResidueView`, resturns an array of :class:`pv.mol.AtomView` instances.
 
-.. function:: mol.Residue.atom(nameOrIndex)
-              mol.ResidueView.atom(nameOrIndex)
+.. function:: pv.mol.Residue.atom(nameOrIndex)
+              pv.mol.ResidueView.atom(nameOrIndex)
 
   Get a particular atom from this residue. *nameOrResidue* can either be an integer, in which case the atom at that index is returned, or a string, in which case an atom with that name is searched and returned. 
 
-  :returns: For :class:`mol.Residue`, a :class:`mol.Atom` instance, for :class:`mol.ResidueView`, a :class:`mol.AtomView` instance. If no matching atom could be found, null is returned. 
+  :returns: For :class:`pv.mol.Residue`, a :class:`pv.mol.Atom` instance, for :class:`pv.mol.ResidueView`, a :class:`pv.mol.AtomView` instance. If no matching atom could be found, null is returned. 
 
 
-.. function:: mol.Residue.addAtom(name, pos, element)
+.. function:: pv.mol.Residue.addAtom(name, pos, element)
 
   Adds a new atom to the residue. 
 
@@ -320,51 +390,71 @@ The Residue (and ResidueView) API
   :param pos: the atom position
   :param element: the atom element string, e.g. 'C' for carbon, 'N' for nitrogen
 
-  :returns: the newly created :class:`mol.Atom` instance
+  :returns: the newly created :class:`pv.mol.Atom` instance
 
-.. function:: mol.ResidueView.addAtom(atom)
+.. function:: pv.mol.ResidueView.addAtom(atom)
 
   Adds the given atom to the residue view
 
-  :returns: the newly created :class:`mol.AtomView` instance
+  :returns: the newly created :class:`pv.mol.AtomView` instance
 
 
-The Atom (and AtomView) API
+Atom (and AtomView)
 -----------------------------------------------------------------------------------------
 
-.. class:: mol.Atom
+.. class:: pv.mol.Atom
+
+  Stores properties such as positions, name element etc of an atom. Atoms always have parent residue. New atoms are created by adding them to an existing residue through :func:`pv.mol.Residue.addAtom`.
 
 
-.. class:: mol.AtomView
+.. class:: pv.mol.AtomView
+
+  Represents a selected atom as part of a view. New atom views are created by adding them to an existing :class:`pv.mol.ResidueView` through :func:`pv.mol.ResidueView.addAtom`.
 
 
-.. function:: mol.Atom.name()
-              mol.AtomView.name()
+.. function:: pv.mol.Atom.name()
+              pv.mol.AtomView.name()
 
   The name of the atom, e.g. CA for carbon alpha.
 
-.. function:: mol.Atom.element()
-              mol.AtomView.element()
+.. function:: pv.mol.Atom.element()
+              pv.mol.AtomView.element()
 
-  The element of the atom. When loading structures from PDB, the element column must be present for the element to be set properly. When the element column is not present, the element is set to an empty string, or to whatever characters are present in the element column.
+  The element of the atom. When loading structures from PDB, the atom element is taken *as is* from the element column if it is not empty. In case of an empty element column, the element is guessed from the atom name.
   
 
-.. function:: mol.Atom.bonds()
-              mol.AtomView.bonds()
+.. function:: pv.mol.Atom.bonds()
+              pv.mol.AtomView.bonds()
 
   Returns a list of all bonds this atom is involved in. 
 
-.. function:: mol.Atom.pos()
-              mol.AtomView.pos()
+.. function:: pv.mol.Atom.pos()
+              pv.mol.AtomView.pos()
 
   The actual coordinates of the atom.
 
+.. function:: pv.mol.Atom.isHetatm()
+              pv.mol.AtomView.isHetatm()
 
-The Bond API
+  Returns true when the atom was imported from a HETATM record, false if not. This flag is only meaningful for structures imported from PDB files and will return false for other file formats.
+
+
+.. function:: pv.mol.Atom.occupancy()
+              pv.mol.AtomView.occupancy()
+
+  Returns the occupancy of this atom. In case this value is not available, null will be returned.
+
+.. function:: pv.mol.Atom.tempFactor()
+              pv.mol.AtomView.tempFactor()
+
+  Returns the temperature factor (aka B-factor) of this atom. In case this value is not available, null will be returned.
+
+
+Bond
 -----------------------------------------------------------------------------------------
 
 
-.. class:: mol.Bond
+.. class:: pv.mol.Bond
 
 
 to be written...

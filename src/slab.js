@@ -1,4 +1,4 @@
-// Copyright (c) 2013-2014 Marco Biasini
+// Copyright (c) 2013-2015 Marco Biasini
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to
@@ -18,7 +18,8 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-(function(exports) {
+define(function() {
+
 "use strict";
 
 function Slab(near, far) {
@@ -36,7 +37,7 @@ FixedSlab.prototype.update = function() {
   return new Slab(this._near, this._far);
 };
 
-function AutoSlab(options) {
+function AutoSlab() {
   this._far = 100.0;
 }
 
@@ -60,8 +61,10 @@ AutoSlab.prototype.update = function(objects, cam) {
   return new Slab(newNear, newFar);
 };
 
-exports.FixedSlab = FixedSlab;
-exports.AutoSlab = AutoSlab;
-exports.Slab = Slab;
+return {
+  FixedSlab : FixedSlab,
+  AutoSlab : AutoSlab,
+  Slab : Slab
+};
 
-})(this);
+});

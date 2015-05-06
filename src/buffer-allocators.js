@@ -1,4 +1,4 @@
-// Copyright (c) 2013-2014 Marco Biasini
+// Copyright (c) 2013-2015 Marco Biasini
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to
@@ -18,13 +18,9 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-(function(exports) {
+define(function() {
 "use strict";
 
-// contains classes for two kinds of typed array allocation schemes. 
-// PoolAllocator stores every typed array allocation in a list and tries
-// to reuse unused buffers whenever possible. The NativeAllocator just
-// news the typed arrays every time they are used.
 function PoolAllocator(bufferType) {
   this._freeArrays = [];
   this._bufferType = bufferType;
@@ -55,19 +51,5 @@ PoolAllocator.prototype.release = function(buffer) {
   this._freeArrays.push(buffer);
 };
 
-function NativeAllocator(bufferType) {
-  this._bufferType = bufferType;
-}
-
-NativeAllocator.prototype.request = function(length) {
-  return new this._bufferType(length);
-};
-
-NativeAllocator.prototype.release = function(buffer) {
-};
-
-exports.PoolAllocator = PoolAllocator;
-exports.NativeAllocator = NativeAllocator;
-
-return true;
-})(this);
+return PoolAllocator;
+});

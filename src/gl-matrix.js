@@ -28,28 +28,9 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 
-(function(_global) {
-  "use strict";
-
-  var shim = {};
-  if (typeof(exports) === 'undefined') {
-    if(typeof define == 'function' && typeof define.amd == 'object' && define.amd) {
-      shim.exports = {};
-      define(function() {
-        return shim.exports;
-      });
-    } else {
-      // gl-matrix lives in a browser, define its namespaces in global
-      shim.exports = typeof(window) !== 'undefined' ? window : _global;
-    }
-  }
-  else {
-    // gl-matrix lives in commonjs, define its namespaces in exports
-    shim.exports = exports;
-  }
-
-  (function(exports) {
-    /* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
+define(function() {
+var exports = {};
+/* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
@@ -99,10 +80,7 @@ glMatrix.setMatrixArrayType = function(type) {
     GLMAT_ARRAY_TYPE = type;
 }
 
-if(typeof(exports) !== 'undefined') {
-    exports.glMatrix = glMatrix;
-}
-;
+exports.glMatrix = glMatrix;
 /* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -659,10 +637,7 @@ vec3.str = function (a) {
     return 'vec3(' + a[0] + ', ' + a[1] + ', ' + a[2] + ')';
 };
 
-if(typeof(exports) !== 'undefined') {
-    exports.vec3 = vec3;
-}
-;
+exports.vec3 = vec3;
 /* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -1184,10 +1159,7 @@ vec4.str = function (a) {
     return 'vec4(' + a[0] + ', ' + a[1] + ', ' + a[2] + ', ' + a[3] + ')';
 };
 
-if(typeof(exports) !== 'undefined') {
-    exports.vec4 = vec4;
-}
-;
+exports.vec4 = vec4;
 var mat3 = {};
 
 /**
@@ -1590,10 +1562,7 @@ mat3.str = function (a) {
                     a[6] + ', ' + a[7] + ', ' + a[8] + ')';
 };
 
-if(typeof(exports) !== 'undefined') {
-    exports.mat3 = mat3;
-}
-;
+exports.mat3 = mat3;
 /* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -1942,6 +1911,26 @@ mat4.multiply = function (out, a, b) {
     out[14] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
     out[15] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
     return out;
+};
+
+mat4.fromMat3 = function(out, a) {
+  out[ 0] = a[0];
+  out[ 1] = a[1];
+  out[ 2] = a[2];
+  out[ 3] = 0.0;
+  out[ 4] = a[3];
+  out[ 5] = a[4];
+  out[ 6] = a[5];
+  out[ 7] = 0.0;
+  out[ 8] = a[6];
+  out[ 9] = a[7];
+  out[10] = a[8];
+  out[11] = 0.0;
+  out[12] = 0.0;
+  out[13] = 0.0;
+  out[14] = 0.0;
+  out[15] = 1.0;
+  return out;
 };
 
 /**
@@ -2510,10 +2499,7 @@ mat4.str = function (a) {
                     a[12] + ', ' + a[13] + ', ' + a[14] + ', ' + a[15] + ')';
 };
 
-if(typeof(exports) !== 'undefined') {
-    exports.mat4 = mat4;
-}
-;
+exports.mat4 = mat4;
 /* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -3048,10 +3034,7 @@ quat.str = function (a) {
     return 'quat(' + a[0] + ', ' + a[1] + ', ' + a[2] + ', ' + a[3] + ')';
 };
 
-if(typeof(exports) !== 'undefined') {
-    exports.quat = quat;
-}
-;
+exports.quat = quat;
+return exports;
 
-  })(shim.exports);
-})(this);
+});
